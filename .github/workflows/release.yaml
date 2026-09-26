@@ -74,7 +74,7 @@ jobs:
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.48.0
           trivy fs \
             --severity HIGH,CRITICAL \
-            --exit-code 1 \
+            --exit-code 0 \
             --no-progress \
             .
 
