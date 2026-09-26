@@ -609,6 +609,28 @@ func (s *Server) handleRemovePackage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Collect pool paths to delete before removing from index
+	var poolPathsToDelete []string
+	if dist, ok := rp.IndexMgr.GetDistribution(suite); ok {
+		if comp, ok := dist.Components[component]; ok {
+			if pkg, ok := comp.Packages[pkgName]; ok {
+				for key := range pkg.Versions {
+					parts := strings.Split(key, ":")
+					if len(parts) != 2 {
+						continue
+					}
+					pvVer, pvArch := parts[0], parts[1]
+
+					// Only delete if this entry matches the filter (or no filter specified)
+					if (ver == "" || pvVer == ver) && (arch == "" || pvArch == arch) {
+						objKey := fmt.Sprintf("pool/%s/%s_%s_%s.deb", component, pkgName, pvVer, pvArch)
+						poolPathsToDelete = append(poolPathsToDelete, objKey)
+					}
+				}
+			}
+		}
+	}
+
 	// Call index manager to remove
 	if err := rp.IndexMgr.RemovePackageVersion(suite, component, pkgName, ver, arch); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -621,14 +643,23 @@ func (s *Server) handleRemovePackage(w http.ResponseWriter, r *http.Request) {
 		s.renderAndStoreDistribution(suite, dist, rp)
 	}
 
-	// Persist updated snapshot to MinIO (async by default)
+	// Delete pool files and persist updated snapshot (async by default)
 	if rp.MinioClient != nil {
 		go func() {
+			ctx := context.Background()
+
+			// Delete pool files
+			for _, objKey := range poolPathsToDelete {
+				if err := rp.MinioClient.RemoveObject(ctx, objKey); err != nil {
+					slog.Warn("failed to delete pool file after remove", "object", objKey, "error", err)
+					// Don't fail the entire operation if one file deletion fails
+				}
+			}
+
+			// Persist updated snapshot
 			store := rp.SnapshotStore
 			snap := rp.IndexMgr.GetIndex().ToSnapshot("api-remove")
-			// Background context: the request context is canceled when the
-			// handler returns, which would abort the persist.
-			if _, err := store.PutSnapshot(context.Background(), snap); err != nil {
+			if _, err := store.PutSnapshot(ctx, snap); err != nil {
 				slog.Warn("failed to persist snapshot after remove", "error", err)
 			}
 		}()

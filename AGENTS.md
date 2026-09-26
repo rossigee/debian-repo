@@ -99,8 +99,17 @@ All pages are rendered on-demand with theming support. No static files.
   - OIDC middleware for HTML pages (wraps with session cookie validation)
   - Metrics authentication middleware for `/metrics` endpoint
 - **apt_handlers.go**: GET routes for apt clients (metadata, pool files in proxy mode)
-- **ci_handlers.go**: POST routes for CI (upload, presign, register, async reconcile) — both modes converge on `registerCommit()`
-  - `handleReconcile`: Async job submission (returns 202 Accepted with job ID)
+- **ci_handlers.go**: POST/DELETE routes for CI (upload, presign, register, remove, async reconcile)
+  - `handleUpload`: Direct package upload (validates, stages, registers in one step)
+  - `handlePresign`: Request presigned URL for large package uploads
+  - `handleRegister`: Register pre-uploaded package from staging
+  - `handleRemovePackage`: Remove package and delete pool file (async)
+    - Collects pool paths matching package/version/arch filters before deletion
+    - Removes from index and re-renders Release/Packages metadata
+    - Deletes .deb file from pool storage asynchronously (non-blocking)
+    - Persists updated snapshot to MinIO
+  - `handleMovePackages`: Move packages between suites without re-uploading
+  - `handleReconcile`: Async job submission for rebuilding index from pool (returns 202 Accepted with job ID)
   - `handleReconcileStatus`: Job status polling (returns progress and results)
   - `runReconcileJob`: Background reconciliation worker using context.Background()
 - **json_handlers.go**: JSON API endpoints (`/index.json`)

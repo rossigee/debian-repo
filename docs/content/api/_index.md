@@ -97,6 +97,8 @@ curl -X POST \
 
 ### Remove a package
 
+Removes a package version from the repository and deletes its `.deb` file from pool storage:
+
 ```bash
 curl -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
@@ -111,6 +113,14 @@ curl -X DELETE \
   "suite": "stable"
 }
 ```
+
+**What happens:**
+1. Package is removed from the index
+2. Repository metadata (Release, Packages files) is re-rendered
+3. `.deb` file is deleted from pool storage (async, non-blocking)
+4. Updated snapshot is persisted to MinIO
+
+Supports partial removal by version or architecture (see [Managing Packages](../user-guide/managing.md) for details).
 
 ### Move packages between suites
 

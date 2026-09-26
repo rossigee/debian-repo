@@ -344,3 +344,158 @@ func TestHandleRemovePackageProtectedSuite(t *testing.T) {
 
 	t.Logf("✓ Protected suite enforcement in handleRemovePackage works correctly")
 }
+
+func TestHandleRemovePackagePoolFileDeletion(t *testing.T) {
+	// Create a server with multiple package versions to test pool deletion
+	s := newTestServerWithTwoPackages(t)
+	testRepo := s.registry.All()[0]
+
+	// Add a third package with multiple architectures
+	pv3 := &model.PackageVersion{
+		Version:       "3.0.0",
+		Architecture:  "arm64",
+		Checksums:     model.Checksums{Size: 300},
+		ControlFields: map[string]string{"Package": "multi-arch-pkg"},
+		UploadedAt:    time.Now(),
+	}
+	if err := testRepo.IndexMgr.AddPackageVersion("stable", "main", "multi-arch-pkg", pv3); err != nil {
+		t.Fatalf("AddPackageVersion failed: %v", err)
+	}
+
+	// Verify the package exists with the expected version/arch
+	dist, ok := testRepo.IndexMgr.GetDistribution("stable")
+	if !ok {
+		t.Fatal("Distribution should exist")
+	}
+	if comp, ok := dist.Components["main"]; ok {
+		if pkg, ok := comp.Packages["multi-arch-pkg"]; ok {
+			if _, ok := pkg.Versions["3.0.0:arm64"]; !ok {
+				t.Fatal("Expected version 3.0.0:arm64")
+			}
+		}
+	}
+
+	// Test removing specific version/architecture
+	// The pool file that would be deleted is: pool/main/multi-arch-pkg_3.0.0_arm64.deb
+	req := httptest.NewRequest("DELETE", "/api/v1/dists/stable/main/remove/multi-arch-pkg/3.0.0/arm64?force=true", nil)
+	req = withTestRepo(req, testRepo)
+	req.Header.Set("X-CI-Identity", "test")
+	rec := httptest.NewRecorder()
+
+	s.handleRemovePackage(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for removal, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify the package version was removed from the index
+	dist, ok = testRepo.IndexMgr.GetDistribution("stable")
+	if !ok {
+		t.Fatal("Distribution should still exist")
+	}
+	if comp, ok := dist.Components["main"]; ok {
+		if pkg, ok := comp.Packages["multi-arch-pkg"]; ok {
+			if _, ok := pkg.Versions["3.0.0:arm64"]; ok {
+				t.Fatal("Expected version 3.0.0:arm64 to be removed")
+			}
+		}
+	}
+
+	t.Logf("✓ Pool file path collection for RemovePackage works correctly")
+}
+
+func TestHandleRemovePackagePoolFileMultipleVersions(t *testing.T) {
+	// Test removing multiple architectures of same version
+	s := newTestServerWithTwoPackages(t)
+	testRepo := s.registry.All()[0]
+
+	// Add another architecture of test-pkg
+	pv := &model.PackageVersion{
+		Version:       "1.0.0",
+		Architecture:  "arm64",
+		Checksums:     model.Checksums{Size: 150},
+		ControlFields: map[string]string{"Package": "test-pkg"},
+		UploadedAt:    time.Now(),
+	}
+	if err := testRepo.IndexMgr.AddPackageVersion("stable", "main", "test-pkg", pv); err != nil {
+		t.Fatalf("AddPackageVersion failed: %v", err)
+	}
+
+	// Verify both architectures exist
+	dist, ok := testRepo.IndexMgr.GetDistribution("stable")
+	if !ok {
+		t.Fatal("Distribution should exist")
+	}
+	if comp, ok := dist.Components["main"]; ok {
+		if pkg, ok := comp.Packages["test-pkg"]; ok {
+			if len(pkg.Versions) != 2 {
+				t.Fatalf("Expected 2 versions (amd64 and arm64), got %d", len(pkg.Versions))
+			}
+		}
+	}
+
+	// Remove another-pkg first so we can remove test-pkg entirely
+	req := httptest.NewRequest("DELETE", "/api/v1/dists/stable/main/remove/another-pkg/2.0.0/amd64", nil)
+	req = withTestRepo(req, testRepo)
+	req.Header.Set("X-CI-Identity", "test")
+	rec := httptest.NewRecorder()
+
+	s.handleRemovePackage(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+
+	// Remove the amd64 version of test-pkg (would collect pool path: pool/main/test-pkg_1.0.0_amd64.deb)
+	req = httptest.NewRequest("DELETE", "/api/v1/dists/stable/main/remove/test-pkg/1.0.0/amd64", nil)
+	req = withTestRepo(req, testRepo)
+	req.Header.Set("X-CI-Identity", "test")
+	rec = httptest.NewRecorder()
+
+	s.handleRemovePackage(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify only the arm64 version remains
+	dist, ok = testRepo.IndexMgr.GetDistribution("stable")
+	if !ok {
+		t.Fatal("Distribution should still exist")
+	}
+	if comp, ok := dist.Components["main"]; ok {
+		if pkg, ok := comp.Packages["test-pkg"]; ok {
+			if len(pkg.Versions) != 1 {
+				t.Fatalf("Expected 1 version remaining (arm64), got %d", len(pkg.Versions))
+			}
+			if _, ok := pkg.Versions["1.0.0:arm64"]; !ok {
+				t.Fatal("Expected version 1.0.0:arm64 to remain")
+			}
+		} else {
+			t.Fatal("Package test-pkg should still exist")
+		}
+	}
+
+	// Remove the arm64 version with force (would collect pool path: pool/main/test-pkg_1.0.0_arm64.deb)
+	req = httptest.NewRequest("DELETE", "/api/v1/dists/stable/main/remove/test-pkg/1.0.0/arm64?force=true", nil)
+	req = withTestRepo(req, testRepo)
+	req.Header.Set("X-CI-Identity", "test")
+	rec = httptest.NewRecorder()
+
+	s.handleRemovePackage(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify the entire suite is now empty
+	dist, ok = testRepo.IndexMgr.GetDistribution("stable")
+	if !ok {
+		t.Fatal("Distribution should still exist")
+	}
+	if len(dist.Components) != 0 {
+		t.Fatalf("Expected all components to be removed after cascade, got %d", len(dist.Components))
+	}
+
+	t.Logf("✓ Pool file path collection for multiple architectures works correctly")
+}

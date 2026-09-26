@@ -8,7 +8,15 @@ Guide for removing packages, promoting packages between suites, and organizing y
 
 ## Removing Packages
 
+When you remove a package, the system:
+1. **Removes from index** — Package is deleted from the repository metadata
+2. **Re-renders metadata** — Release and Packages files are updated
+3. **Deletes pool files** — `.deb` files are removed from MinIO storage (async)
+4. **Persists snapshot** — Updated repository state is saved
+
 ### Remove a single package version
+
+Removes a specific version and architecture:
 
 ```bash
 curl -X DELETE \
@@ -25,23 +33,55 @@ curl -X DELETE \
 }
 ```
 
+**Pool file deleted:** `pool/main/nginx_1.20.0_amd64.deb`
+
 ### Remove all architectures of a version
 
+Removes all architectures (amd64, arm64, etc.) of a specific version:
+
 ```bash
-# Omit /{arch} to remove all architectures
+# Note: Requires ?force=true if this would drain a protected suite
 curl -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
-  https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx/1.20.0
+  https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx/1.20.0?force=true
 ```
+
+**Pool files deleted:**
+- `pool/main/nginx_1.20.0_amd64.deb`
+- `pool/main/nginx_1.20.0_arm64.deb`
+- etc. for all architectures
 
 ### Remove all versions of a package
 
+Removes the entire package (all versions and architectures):
+
 ```bash
-# Omit /{version}/{arch} to remove entire package
+# Note: Requires ?force=true if this would drain a protected suite
 curl -X DELETE \
   -H "Authorization: Bearer $TOKEN" \
-  https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx
+  https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx?force=true
 ```
+
+**Pool files deleted:** All nginx files
+- `pool/main/nginx_1.20.0_amd64.deb`
+- `pool/main/nginx_1.20.0_arm64.deb`
+- `pool/main/nginx_1.19.0_amd64.deb`
+- etc. for all versions and architectures
+
+### Pool File Deletion Details
+
+**Asynchronous operation:**
+- The API returns immediately after removing from index
+- Pool file deletion happens in the background (non-blocking)
+- If a single file deletion fails, it is logged but doesn't fail the operation
+
+**Cascading cleanup:**
+- If removing a package leaves a component empty, the component is deleted
+- If removing a component leaves a suite empty, the suite is deleted (unless protected)
+
+**Pool path format:**
+- Files are stored as: `pool/{component}/{package}_{version}_{architecture}.deb`
+- Example: `pool/main/nginx_1.20.0_amd64.deb`
 
 ### Protected Suites
 
