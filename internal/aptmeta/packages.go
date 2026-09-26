@@ -11,6 +11,27 @@ import (
 	"git.golder.lan/rossgolderltd/debian-repo/internal/model"
 )
 
+// writeField writes a control field in RFC 822 form.
+//
+// validate.parseControlFile stores field values with the fold whitespace
+// stripped from continuation lines, so a multi-line value such as
+// Description is held as "first line\nsecond line\n...". Continuation lines
+// must begin with a space when written back out (Debian Policy 5.1); without
+// it apt's parser stops treating the remainder of the field as part of it and
+// silently mis-slices every field that follows, which makes apt consider the
+// installed and candidate versions different and reinstall forever.
+func writeField(buf *bytes.Buffer, name, value string) {
+	buf.WriteString(name)
+	buf.WriteString(": ")
+	for i, line := range strings.Split(value, "\n") {
+		if i > 0 {
+			buf.WriteString("\n ")
+		}
+		buf.WriteString(line)
+	}
+	buf.WriteString("\n")
+}
+
 // RenderPackages renders the Packages file for a given component/arch in a distribution
 func RenderPackages(dist *model.Distribution, component, arch string) (uncompressed, compressed []byte, err error) {
 	dist.Mu.RLock()
@@ -58,14 +79,14 @@ func RenderPackages(dist *model.Distribution, component, arch string) (uncompres
 			buf.WriteString(ver.ControlFields["Architecture"])
 			buf.WriteString("\n")
 
-			// Optional fields from control file
-			optionalFields := []string{"Section", "Priority", "Maintainer", "Description", "Depends", "Recommends", "Suggests", "Pre-Depends", "Breaks", "Replaces", "Conflicts"}
+			// Optional fields from control file. Installed-Size must be included:
+			// apt compares it against the value dpkg recorded in
+			// /var/lib/dpkg/status and reinstalls the package on every run when
+			// the two disagree, including when the field is absent.
+			optionalFields := []string{"Section", "Priority", "Maintainer", "Homepage", "Installed-Size", "Multi-Arch", "Description", "Depends", "Recommends", "Suggests", "Enhances", "Pre-Depends", "Breaks", "Conflicts", "Provides", "Replaces"}
 			for _, field := range optionalFields {
 				if val, ok := ver.ControlFields[field]; ok && val != "" {
-					buf.WriteString(field)
-					buf.WriteString(": ")
-					buf.WriteString(val)
-					buf.WriteString("\n")
+					writeField(&buf, field, val)
 				}
 			}
 
