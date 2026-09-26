@@ -84,8 +84,20 @@ jobs:
             --no-progress \
             . || echo "Trivy scan completed or timed out"
 
-      # Publishing is deliberately not done here. This workflow runs on
-      # pull_request as well as master pushes, so an unconditional push lets any
-      # branch overwrite :latest, which is the tag the deployed service tracks.
-      # release.yaml is the only publisher; see its `on: push: tags: ['v*']`.
+      # Publish on master pushes and on tags, but never from a pull request:
+      # this workflow also runs for pull_request, and an unconditional push lets
+      # any branch overwrite :latest, which is the tag the deployed service
+      # tracks. Guarding on the event keeps master pushes publishing as before.
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login \
+            -u "${{ github.actor }}" \
+            --password-stdin ghcr.io
+
+      - name: Push Docker image to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push ghcr.io/rossigee/debian-repo:latest
+          docker push ghcr.io/rossigee/debian-repo:${{ env.VERSION }}
 
