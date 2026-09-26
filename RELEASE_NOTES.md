@@ -1,40 +1,108 @@
-# Release Notes: v0.4.0
+# Release Notes: v0.5.0
 
-**Release Date**: 2026-09-25
-**Git Tag**: `v0.4.0`
-**Docker Image**: `ghcr.io/rossigee/debian-repo:v0.4.0`
+**Release Date**: 2026-09-26
+**Git Tag**: `v0.5.0`
+**Docker Image**: `ghcr.io/rossigee/debian-repo:v0.5.0`
 
 ## Summary
 
-v0.4.0 introduces **checksum sidecar caching**, a performance optimization that reduces reconciliation time from 15-20 minutes to seconds on subsequent runs. Sidecars cache pre-computed checksums + control metadata at upload time, eliminating expensive full-file downloads during reconciliation.
+v0.5.0 introduces **atomic pool file deletion** for the remove deb API. When packages are removed from the repository, their `.deb` files are now automatically deleted from MinIO pool storage, eliminating orphaned files and ensuring consistent state between the package index and pool contents.
 
 ## Major Features
 
-### Checksum Sidecar Cache (Performance Optimization)
+### Atomic Pool File Deletion
 
-**Problem**: Reconciliation (scanning MinIO pool and rebuilding the index) required downloading and hashing every `.deb` file, taking 15-20+ minutes for 110 packages.
+**Problem**: Previously, when removing packages via the remove API, only the index was updated and Release/Packages metadata was re-rendered. The actual `.deb` files in the MinIO pool remained, leading to:
+- Orphaned pool files consuming storage
+- Inconsistency between index and pool contents
+- Manual cleanup required via `repoctl reconcile --prune-orphans`
 
 **Solution**:
-1. **At upload time**: Write `.deb.checksums.json` sidecar alongside each package with pre-computed checksums, control metadata, and object ETag
-2. **During reconciliation**: Read sidecar first; if ETag matches (object unchanged), use cached checksums and skip download; if ETag differs or sidecar missing, fall back to full-hash and rewrite sidecar for next run
-3. **Result**: Cache hits skip expensive downloads, making subsequent reconciliations dramatically faster
+1. **Before index mutation**: Collect all `.deb` file paths matching the removal criteria
+2. **Index mutation**: Remove package from index and re-render Release/Packages metadata
+3. **Async cleanup**: Delete collected pool files from MinIO storage (non-blocking)
+4. **Persist snapshot**: Updated repository state is saved
 
 **Behavior**:
-- **First reconciliation after upgrade**: All packages take full-hash path (no sidecars yet from pre-v0.4.0 uploads), but sidecars are written for next run
-- **Second and subsequent reconciliations**: Nearly all packages hit cache (ETag unchanged), completing in seconds instead of 15-20 min
-- **Drift detection**: ETag mismatch automatically triggers re-hash, correctly detecting if files were modified in MinIO
+- **Request returns immediately** after index update (atomic pointer swap)
+- **Pool files deleted asynchronously** in background goroutine
+- **Error resilience**: Individual file deletion failures are logged but don't fail the operation
+- **Cascading cleanup**: Empty components/suites are automatically removed
+- **Flexible removal**: Supports removing specific version/architecture or all versions of a package
 
 **Implementation**:
-- `internal/model/checksumsidecar.go`: ChecksumSidecarV1 struct (FormatVersion, Package, Version, Architecture, ControlFields, MD5/SHA1/SHA256/Size, ETag, WrittenAt)
-- `internal/storage/minio/checksumsidecar.go`: Store operations (PutChecksumSidecar, GetChecksumSidecar)
-- `internal/apiserver/ci_handlers.go`: Fire-and-forget async sidecar writes on registration (handleUpload, handleRegister)
-- `internal/reconcile/reconcile.go`: ETag-based cache validation with fallback to full-hash
-- Sidecar key format: `{debKey}.checksums.json` (e.g., `pool/main/foo_1.0_amd64.deb.checksums.json`)
+- `internal/apiserver/ci_handlers.go`: Enhanced `handleRemovePackage` function
+  - Lines 612-632: Collect pool paths before deletion
+  - Lines 646-666: Async pool file deletion and snapshot persistence
+- Pool path format: `pool/{component}/{package}_{version}_{architecture}.deb`
+- Uses existing MinIO client (`rp.MinioClient.RemoveObject`)
+- Background context prevents cancellation when request completes
 
 **Testing**:
-- Unit tests: sidecarIsFresh(), buildPackageVersionFromDebInfo()
+- `TestHandleRemovePackagePoolFileDeletion`: Verifies pool path collection for specific version/arch
+- `TestHandleRemovePackagePoolFileMultipleVersions`: Tests removal of multiple architectures
 - All existing tests pass with race detector
 - No breaking changes to public APIs
+
+### Documentation Updates
+
+- **API Reference** (`docs/content/api/_index.md`): Documented pool file deletion process
+- **User Guide** (`docs/content/user-guide/managing.md`): Three removal scenarios with examples
+- **Example Script** (`examples/api_remove.sh`): Updated with correct endpoint and improved error handling
+- **Architecture Guide** (`AGENTS.md`): Documented handleRemovePackage implementation details
+
+## API Changes
+
+### DELETE /api/v1/dists/{suite}/{component}/remove/{package}[/{version}[/{arch}]]
+
+**Behavior**:
+- Removes package from index
+- Re-renders Release/Packages metadata
+- **Deletes `.deb` file from pool storage** (async)
+- Persists updated snapshot
+
+**Examples**:
+```bash
+# Remove specific version/architecture (pool file deleted: pool/main/nginx_1.20.0_amd64.deb)
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx/1.20.0/amd64
+
+# Remove all architectures of a version
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx/1.20.0?force=true
+
+# Remove all versions (requires force flag + unprotect grant for protected suites)
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  "https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx?force=true"
+```
+
+**Response (200)**:
+```json
+{
+  "status": "removed",
+  "package": "nginx",
+  "suite": "stable"
+}
+```
+
+**Protection Handling**:
+- Protected suites cannot be fully drained without `?force=true` and `unprotect` operation grant
+- Prevents accidental complete depletion of production suites
+
+## Migration Notes
+
+**No migrations required**. The feature:
+- Is fully backward compatible
+- Automatically handles packages added before v0.5.0
+- Uses existing MinIO client
+- Integrates seamlessly with existing removal flow
+
+## Performance
+
+- **Request latency**: Unaffected (async deletion happens after response)
+- **Index operations**: No overhead (pool paths collected in single pass before mutation)
+- **Pool cleanup**: Happens asynchronously, non-blocking to apt clients
+- **Snapshot persistence**: Async, doesn't block request
 
 ## Deployment Instructions
 
@@ -47,13 +115,13 @@ v0.4.0 introduces **checksum sidecar caching**, a performance optimization that 
 
 ```bash
 cd ~/go/src/github.com/rossigee/debian-repo
-git checkout v0.4.0
+git checkout v0.5.0
 
 # Build image locally
-docker build -t ghcr.io/rossigee/debian-repo:v0.4.0 .
+docker build -t ghcr.io/rossigee/debian-repo:v0.5.0 .
 
 # Push to registry
-docker push ghcr.io/rossigee/debian-repo:v0.4.0
+docker push ghcr.io/rossigee/debian-repo:v0.5.0
 ```
 
 ### Step 2: Deploy to vault.internal
@@ -62,7 +130,7 @@ docker push ghcr.io/rossigee/debian-repo:v0.4.0
 ssh vault.internal
 
 # Pull the new image
-docker pull ghcr.io/rossigee/debian-repo:v0.4.0
+docker pull ghcr.io/rossigee/debian-repo:v0.5.0
 
 # Restart the container (snapshot will be reused if compatible)
 cd /opt/docker-compose/debian-repo
@@ -76,138 +144,40 @@ docker-compose ps
 docker-compose logs debian-repo | tail -20
 ```
 
-### Step 3: Trigger Reconciliation to Populate Sidecars
+### Step 3: Verify Pool File Deletion
+
+Test the removal endpoint to verify pool files are being deleted:
 
 ```bash
-# First reconciliation will write sidecars for all packages
-curl -X POST \
+# Remove a non-production package
+curl -X DELETE \
   -H "Authorization: Bearer $REPO_ADMIN_TOKEN" \
-  https://debs.myorgname.com/api/v1/admin/reconcile
+  https://debs.myorgname.com/api/v1/dists/testing/main/remove/test-package/1.0.0/amd64
 
-# Monitor progress (should take 15-20 min, same as before)
-# Next reconciliation will be dramatically faster (seconds)
+# Check MinIO to verify pool file was deleted
+mc ls minio/debs-myorgname/pool/main/ | grep test-package
+# Should show no results (file was deleted)
 ```
 
-### Step 4: Verify Performance Improvement
+## Breaking Changes
 
-After first reconciliation completes:
+None. This is a purely additive feature.
 
-```bash
-# Trigger second reconciliation (should complete in seconds)
-curl -X POST \
-  -H "Authorization: Bearer $REPO_ADMIN_TOKEN" \
-  https://debs.myorgname.com/api/v1/admin/reconcile
+## Known Issues
 
-# Monitor (expect significant speedup)
-# Should see progress advance from 0% to 100% in <10 seconds
-```
-
-## What Changed
-
-### Code
-- Added checksum sidecar model and storage layer
-- Modified upload handlers to write sidecars asynchronously
-- Enhanced reconciliation with cache-aware path and fallback logic
-- Added unit tests for cache logic
-- Updated AGENTS.md documentation
-
-### No breaking changes
-- All existing APIs remain unchanged
-- Sidecar writes are best-effort (failures don't block registration)
-- Fallback to full-hash ensures correctness even if sidecars are missing/corrupted
-
-## Performance Impact
-
-### Reconciliation Time
-- **First run**: ~15-20 min (same as v0.2.7, all packages written to sidecar)
-- **Subsequent runs**: <10 seconds (cache hits on 95%+ of packages)
-
-### Disk/Network
-- Minimal: Each sidecar is ~2KB (JSON), negligible overhead
-- No temp files; fire-and-forget async writes
-
-### Memory
-- Unchanged: Same per-package in-memory index
-
-## Migration from v0.2.7
-
-Simply deploy v0.4.0; no data migration needed:
-1. Old snapshots work unchanged (sidecar optional)
-2. First reconciliation writes sidecars for all packages
-3. Subsequent reconciliations automatically benefit from cache
+None.
 
 ## Testing
 
-Before production deployment, verify locally:
-
+All tests pass with race detector:
 ```bash
-go build ./...
 go test -race ./...
-golangci-lint run --timeout=5m
 ```
 
-All tests pass ✅
+## Previous Release
 
-## Known Limitations
-
-None. This release is production-ready.
-
-## Future Improvements
-
-1. Metrics on sidecar cache hit/miss rates
-2. Configurable sidecar retention policy
-3. Periodic cache validation/repair
-
-## Success Criteria
-
-Deployment is successful when:
-- ✅ Container starts without errors
-- ✅ Health checks pass (`/healthz` returns 200)
-- ✅ First reconciliation completes and writes sidecars
-- ✅ Second reconciliation completes significantly faster (<10s vs. 15-20min)
-- ✅ Packages still download without checksum errors
-- ✅ ETag mismatch correctly triggers re-hash (drift detection works)
-
-## Rollback Plan
-
-If issues occur (unlikely):
-
-```bash
-cd /opt/docker-compose/debian-repo
-
-# Revert to v0.2.7
-docker-compose down
-# Edit docker-compose.yml to use old version
-docker pull ghcr.io/rossigee/debian-repo:v0.2.7
-docker-compose up -d
-
-# No data loss; sidecars are simply ignored by older versions
-```
-
-## Contributors
-
-- **Concept**: Identified reconciliation as performance bottleneck
-- **Design**: ETag-based cache validation with deterministic fallback
-- **Implementation**: Sidecar model, storage layer, upload integration, reconciliation cache logic
-- **Testing**: Unit tests for cache functions, integration testing with live packages
-
-## References
-
-**Related work**:
-- v0.2.7: Critical checksum fix (read entire .deb before hashing for determinism)
-- v0.2.5: Checksum verification feature (first identified the mismatch issue)
-
-**Files changed**:
-- VERSION (0.2.7 → 0.4.0)
-- AGENTS.md (documentation update)
-- internal/model/checksumsidecar.go (new)
-- internal/storage/minio/checksumsidecar.go (new)
-- internal/reconcile/reconcile.go (cache logic)
-- internal/reconcile/reconcile_sidecar_test.go (new)
-- internal/apiserver/ci_handlers.go (sidecar writes)
+See [v0.4.0 Release Notes](#) for checksum sidecar caching feature.
 
 ---
 
-**Status**: ✅ READY FOR PRODUCTION DEPLOYMENT
-
-This release provides significant performance improvements (50-100x faster reconciliation) with zero breaking changes. Deploy with confidence.
+**For questions or issues**: Contact the infrastructure team or file an issue at https://github.com/rossigee/debian-repo
