@@ -1,0 +1,101 @@
+# OpenTelemetry OTLP Tracing Configuration Example
+
+listen:
+  http: "0.0.0.0:8080"
+  metrics: "0.0.0.0:9090"
+
+storage:
+  minio:
+    endpoint: "minio.local:9000"
+    bucket: "debian-packages"
+    use_tls: false
+    access_key: "minioadmin"
+    secret_key: "minioadmin"
+  snapshot_key: "_meta/index-snapshot.json.gz"
+  snapshot_history_keep: 10
+  staging_prefix: "_staging"
+
+index:
+  persist_mode: "debounced"
+  persist_debounce: "5s"
+
+pool_serve_mode: "proxy"
+upload_mode: "direct"
+presign_expiry: "1h"
+
+signing:
+  key_path: "/etc/debian-repo/debian-archive.gpg"
+  passphrase: "${SIGNING_KEY_PASSPHRASE}"
+  keep_decrypted: false
+
+validation:
+  max_deb_size_bytes: 549755813888
+  allowed_architectures:
+    - amd64
+    - arm64
+    - armhf
+  allowed_distributions:
+    - stable
+    - testing
+  allowed_components:
+    - main
+    - contrib
+
+auth:
+  ci_tokens:
+    - token: "ci-secret-token-1"
+      identity: "ci-pipeline-prod"
+      grants:
+        - suites: ["stable"]
+          components: ["main"]
+          operations: ["upload"]
+    - token: "ci-secret-token-2"
+      identity: "ci-pipeline-staging"
+      grants:
+        - suites: ["testing"]
+          components: ["main"]
+          operations: ["upload"]
+
+  metrics:
+    token: "${METRICS_TOKEN}"
+
+  apt_users:
+    store_key: "_meta/apt-users.json.gz"
+    reload_interval: "60s"
+
+  oidc:
+    issuer_url: "https://keycloak.internal/auth/realms/myorgname"
+    client_id: "debian-repo"
+    client_secret: "${OIDC_CLIENT_SECRET}"
+    redirect_url: "https://debs.example.com/auth/callback"
+    cookie_secret: "${COOKIE_SECRET}"
+    session_ttl: "12h"
+
+repo_metadata:
+  origin: "myorgname.com"
+  label: "Golder Debian Repository"
+  description: "Official Debian packages for Golder projects"
+
+# OpenTelemetry OTLP Tracing Configuration
+tracing:
+  # Enable OTLP tracing
+  enabled: true
+
+  # OTLP endpoint (Loki, Jaeger, or compatible receiver)
+  otlp_host: "localhost"
+  otlp_port: "4317"
+
+  # OTLP transport protocol (grpc or http)
+  otlp_protocol: "grpc"
+
+  # Service name for traces
+  service_name: "debian-repo"
+
+  # Sampling strategy: always, never, or probabilistic
+  sampler: "probabilistic"
+
+  # Sample rate (0.0-1.0), only used with probabilistic sampler
+  sample_rate: 0.1
+
+# Log level: debug, info, warn, error
+log_level: "info"

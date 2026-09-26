@@ -1,0 +1,13 @@
+baseURL = 'https://rossigee.github.io/debian-repo/'
+title = 'debian-repo'
+publishDir = 'public'
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true
+      param = true
+
+[taxonomies]
+  tag = 'tags'
+  category = 'categories'

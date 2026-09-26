@@ -1,0 +1,40 @@
+.key-details {
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 25px 0;
+  box-shadow: var(--shadow-md);
+}
+
+.key-details strong {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.key-details code {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-light);
+  padding: 4px 8px;
+  margin: 0 2px;
+}
+
+.uids {
+  margin: 12px 0 0 0;
+  padding: 10px 0 0 0;
+}
+
+.uids > div {
+  margin: 6px 0;
+  padding-left: 20px;
+  position: relative;
+}
+
+.uids > div:before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: bold;
+}

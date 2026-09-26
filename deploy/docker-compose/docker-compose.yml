@@ -1,0 +1,124 @@
+services:
+  debian-repo:
+    image: ghcr.io/rossigee/debian-repo:latest
+    container_name: debian-repo
+    restart: unless-stopped
+    ports:
+      # Only expose on loopback - HAProxy handles external routing
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Service configuration
+      LISTEN_HTTP: ":8080"
+      REPO_URL: "https://debs.myorgname.com"
+      LOG_LEVEL: "info"
+
+      # MinIO storage backend
+      MINIO_ENDPOINT: "minio.internal"
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:?error}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:?error}"
+      MINIO_BUCKET: "debs-myorgname"
+      MINIO_USE_TLS: "true"
+      MINIO_CA_CERT: "/etc/ssl/certs/ca-certificates.crt"
+
+      # GPG signing
+      SIGNING_KEY_PATH: "/etc/debian-repo/gpg-key.asc"
+      SIGNING_KEY_PASSPHRASE: "${SIGNING_KEY_PASSPHRASE:?error}"
+      SIGNING_KEEP_DECRYPTED: "true"
+
+      # Upload mode: direct or presigned
+      UPLOAD_MODE: "direct"
+
+      # Pool serving mode: proxy or passthrough
+      POOL_SERVE_MODE: "proxy"
+      PRESIGN_EXPIRY: "3600"
+
+      # OTLP tracing (gRPC on localhost:4317)
+      OTEL_EXPORTER_OTLP_ENDPOINT: "localhost:4317"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+      OTEL_SERVICE_NAME: "debian-repo"
+      OTEL_TRACES_SAMPLER: "always_on"
+
+    volumes:
+      # Mount GPG private key (read-only)
+      - ./gpg-key.asc:/etc/debian-repo/gpg-key.asc:ro
+
+      # Mount config file if using file-based config
+      # - ./config.yaml:/etc/debian-repo/config.yaml:ro
+
+      # CA certificates for MinIO TLS
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    networks:
+      - debian-repo-net
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: OTLP collector for tracing (if enabled)
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: debian-repo-otel
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4318:4318"  # OTLP HTTP receiver
+    volumes:
+      - ./otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    command: ["--config=/etc/otel-collector-config.yml"]
+    networks:
+      - debian-repo-net
+    profiles:
+      - tracing
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  debian-repo-net:
+    driver: bridge
+
+# Usage:
+#
+# 1. Prepare environment:
+#    cp .env.example .env
+#    # Edit .env with MinIO credentials, GPG key passphrase, etc.
+#
+# 2. Prepare secrets:
+#    # Copy or download GPG private key
+#    cp /path/to/signing-key.asc ./gpg-key.asc
+#    chmod 600 ./gpg-key.asc
+#
+# 3. Start service:
+#    docker-compose up -d
+#
+# 4. Check logs:
+#    docker-compose logs -f debian-repo
+#
+# 5. Verify health:
+#    curl http://localhost:8080/healthz
+#    curl http://localhost:8080/readyz
+#
+# 6. Enable tracing (optional):
+#    docker-compose --profile tracing up -d
+#    # Configure SignOz or other OTLP backend to ingest from otel-collector

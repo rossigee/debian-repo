@@ -1,0 +1,55 @@
+{{define "pages/gpgkey.html"}}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPG Key Information</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="stylesheet" href="/static/navbar.css">
+<link rel="stylesheet" href="/static/gpgkey.css">
+</head>
+<body>
+{{template "navbar" .}}
+
+<main>
+
+<div class="key-details">
+<strong>Key Information:</strong><br>
+<br>
+<strong>Key ID:</strong> <code>{{ .KeyID }}</code><br>
+<strong>Fingerprint:</strong> <code>{{ .KeyFingerprint }}</code><br>
+<br>
+<strong>User IDs:</strong>
+<div class="uids">
+{{range .KeyUIDs}}
+<div><code>{{ . }}</code></div>
+{{end}}
+</div>
+</div>
+
+<h2>Public Key Block</h2>
+
+<pre>{{ .PublicKeyBlock }}</pre>
+
+<h2>Import Key</h2>
+
+<pre>
+# Download the key
+curl -O https://debs.myorgname.com/pubkey.gpg
+
+# Import into GPG
+gpg --import pubkey.gpg
+
+# Or use directly with apt
+curl https://debs.myorgname.com/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/myorgname.gpg
+</pre>
+
+</main>
+
+<footer>
+<p>Debian Repository • Powered by <a href="https://github.com/rossigee/debian-repo">debian-repo</a></p>
+</footer>
+
+</body>
+</html>
+{{end}}

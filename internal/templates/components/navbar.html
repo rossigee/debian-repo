@@ -1,0 +1,33 @@
+{{define "navbar"}}
+<nav class="navbar">
+<div class="nav-container">
+<a href="/" class="nav-brand">📦 Debian Repository</a>
+<div class="nav-links">
+{{- $current := .CurrentPage }}
+{{- range $page, $link := .NavItems }}
+  {{- $display := "" }}
+  {{- if eq $page "index" }}
+    {{- $display = "Repository" }}
+  {{- else if eq $page "install" }}
+    {{- $display = "Install" }}
+  {{- else if eq $page "gpg" }}
+    {{- $display = "GPG Key" }}
+  {{- end }}
+  {{- if eq $page $current }}
+    <a href="{{ $link }}" class="nav-item active">{{ $display }}</a>
+  {{- else }}
+    <a href="{{ $link }}" class="nav-item">{{ $display }}</a>
+  {{- end }}
+{{- end }}
+</div>
+<div class="nav-right">
+{{template "user-menu" .}}
+{{template "theme-toggle" .}}
+</div>
+<button class="nav-burger" id="burger" aria-label="Toggle menu">
+<span></span><span></span><span></span>
+</button>
+</div>
+</nav>
+<script src="/static/navbar.js"></script>
+{{end}}

@@ -1,0 +1,129 @@
+# Multi-repo configuration
+required_repo_id: "main"
+
+repos:
+  - id: "main"
+    # vhost and path_prefix empty = serves at root (same as today)
+    # storage, signing, repo_metadata fall back to global defaults
+    default_suite: "stable"
+    # protect_default_suite defaults to true — "stable" cannot be fully
+    # drained via remove/move without ?force=true / "force": true
+
+  - id: "testing"
+    path_prefix: "/testing"
+    # vhost empty = same host, different path
+    # storage and signing fall back to global defaults
+    repo_metadata:
+      origin: "myorgname.com"
+      label: "myorgname.com Testing Repository"
+      description: "Pre-release testing packages for myorgname.com infrastructure"
+    default_suite: "testing"
+    protect_default_suite: false   # example opt-out
+
+listen:
+  http: ":5080"
+  metrics: ":9508"
+
+storage:
+  minio:
+    endpoint: "minio.internal:443"
+    bucket: "debs-myorgname"
+    use_tls: true
+    access_key: "${MINIO_ACCESS_KEY}"
+    secret_key: "${MINIO_SECRET_KEY}"
+    ca_cert: ""
+  snapshot_key: "_meta/index-snapshot.json.gz"
+  snapshot_history_keep: 20
+  staging_prefix: "_staging/"
+
+index:
+  persist_mode: sync
+  persist_debounce: 30s
+
+pool_serve_mode: proxy
+pool_passthrough_style: haproxy_route
+
+upload_mode: direct
+presign_expiry: 15m
+
+signing:
+  key_path: "/etc/debian-repo/signing-key.asc"
+  passphrase: "${SIGNING_KEY_PASSPHRASE}"
+  keep_decrypted: true
+
+validation:
+  max_deb_size_bytes: 536870912
+  allowed_architectures: []
+  allowed_distributions: []
+  allowed_components: []
+
+auth:
+  ci_tokens:
+    - token: "${CI_TOKEN_GITEA}"
+      identity: "gitea-actions"
+      grants:
+        - repos: ["main"]
+          suites: ["stable"]
+          components: ["main"]
+          operations: ["upload", "remove"]
+    - token: "${DEBIAN_REPO_CI_TOKEN}"
+      identity: "ci-upload"
+      grants:
+        - repos: ["main"]
+          suites: ["*"]
+          components: ["*"]
+          operations: ["upload", "list-dists"]
+    - token: "${DEBIAN_REPO_ADMIN_TOKEN}"
+      identity: "repo-admin"
+      grants:
+        - repos: ["main"]
+          suites: ["*"]
+          components: ["*"]
+          # reconcile plus remove/upload/unprotect for suite maintenance
+          # (unprotect is required for force-draining a protected suite)
+          operations: ["reconcile", "upload", "remove", "unprotect", "list-dists"]
+    - token: "${TESTING_REPO_TOKEN}"
+      identity: "testing-ci"
+      grants:
+        - repos: ["testing"]
+          suites: ["*"]
+          components: ["*"]
+          operations: ["upload", "remove"]
+
+  metrics:
+    token: "${METRICS_TOKEN}"
+
+  apt_users:
+    store_key: "_meta/apt-users.json.gz"
+    reload_interval: 60s
+
+  oidc:
+    issuer_url: "https://keycloak.internal/realms/myorgname"
+    client_id: "debian-repo"
+    client_secret: "${OIDC_CLIENT_SECRET}"
+    redirect_url: "https://debs.myorgname.com/auth/callback"
+    cookie_secret: "${OIDC_COOKIE_SECRET}"
+    session_ttl: 12h
+
+repo_metadata:
+  origin: "myorgname.com"
+  label: "myorgname.com Debian Repository"
+  description: "Debian package repository for myorgname.com infrastructure"
+
+# OpenTelemetry OTLP Tracing Configuration
+tracing:
+  # Enable OTLP tracing
+  enabled: false
+
+  # OTLP endpoint (localhost:4317 for gRPC)
+  otlp_host: "localhost"
+  otlp_port: "4317"
+
+  # Service name for traces
+  service_name: "debian-repo"
+
+  # Sampling strategy: always, never, or probabilistic
+  sampler: "probabilistic"
+
+  # Sample rate (0.0-1.0), only used with probabilistic sampler
+  sample_rate: 0.1

@@ -1,0 +1,74 @@
+{{define "pages/profile.html"}}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ .Title }}</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="stylesheet" href="/static/navbar.css">
+<link rel="stylesheet" href="/static/user-menu.css">
+<link rel="stylesheet" href="/static/profile.css">
+</head>
+<body>
+{{template "navbar" .}}
+
+<main>
+<section class="profile-container">
+<div class="profile-card">
+  <div class="profile-header">
+    <div class="profile-avatar">👤</div>
+    <div class="profile-title">User Profile</div>
+  </div>
+
+  <div class="profile-info">
+    <div class="info-section">
+      <h2>Account Information</h2>
+
+      <div class="info-row">
+        <label>Name</label>
+        <span class="info-value">{{ .Name }}</span>
+      </div>
+
+      <div class="info-row">
+        <label>Email</label>
+        <span class="info-value">{{ .Email }}</span>
+      </div>
+
+      {{if .Organization}}
+      <div class="info-row">
+        <label>Organization</label>
+        <span class="info-value">{{ .Organization }}</span>
+      </div>
+      {{end}}
+    </div>
+
+    <div class="info-section">
+      <h2>Settings</h2>
+
+      <div class="setting-item">
+        <label class="setting-label">Theme Preference</label>
+        <p class="setting-description">Use the theme toggle in the navbar to switch between light and dark mode</p>
+      </div>
+    </div>
+
+    <div class="action-section">
+      <a href="/" class="action-button back-button">← Back to Repository</a>
+      <a href="/logout" class="action-button logout-button">🚪 Logout</a>
+    </div>
+  </div>
+</div>
+</section>
+</main>
+
+<footer>
+<p><strong>Debian Repository</strong></p>
+<div class="footer-links">
+<a href="/">Repository</a>
+<a href="/install.html">Installation</a>
+<a href="/gpg-key.html">GPG Key</a>
+</div>
+<p>Powered by <a href="https://github.com/rossigee/debian-repo">debian-repo</a></p>
+</footer>
+</body>
+</html>
+{{end}}

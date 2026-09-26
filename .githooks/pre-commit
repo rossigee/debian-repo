@@ -1,0 +1,81 @@
+#!/bin/bash
+# Pre-commit hook for debian-repo
+# Runs basic checks before allowing commits
+
+set -e
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+echo "🔍 Running pre-commit checks..."
+
+# Check 1: Prevent secrets from being committed
+echo "  ✓ Checking for secrets..."
+if git diff --cached --name-only | grep -E '\.(asc|gpg|key|pem)$'; then
+    echo "❌ ERROR: Attempting to commit cryptographic keys!"
+    echo "   These files should never be committed:"
+    git diff --cached --name-only | grep -E '\.(asc|gpg|key|pem)$'
+    exit 1
+fi
+
+# Check for actual secret assignments in code (not comments or messages)
+if git diff --cached -- '*.go' '*.yaml' '*.yml' | grep -qE '^\+.*[A-Z_]+(PASSPHRASE|SECRET|KEY)\s*[:=]'; then
+    echo "❌ ERROR: Detected potential secrets in diff!"
+    exit 1
+fi
+
+# Check 2: Prevent credentials files
+echo "  ✓ Checking for credentials files..."
+if git diff --cached --name-only | grep -E '(credentials|secrets|\.env)'; then
+    echo "❌ ERROR: Attempting to commit credentials files!"
+    exit 1
+fi
+
+# Check 3: Go formatting
+echo "  ✓ Checking Go formatting..."
+unformatted=$(gofmt -l ./cmd ./internal ./test)
+if [ -n "$unformatted" ]; then
+    echo "❌ Go files need formatting:"
+    echo "$unformatted"
+    echo "   Run: gofmt -w ./..."
+    exit 1
+fi
+
+# Check 4: Go vet
+echo "  ✓ Running go vet..."
+go vet ./cmd/... ./internal/... ./test/...
+
+# Check 5: Trailing whitespace
+echo "  ✓ Checking for trailing whitespace..."
+if git diff --cached | grep -E '^\+.*[[:space:]]$'; then
+    echo "❌ Trailing whitespace detected!"
+    exit 1
+fi
+
+# Check 6: Build check
+echo "  ✓ Building packages..."
+go build ./cmd/debian-repo ./cmd/repoctl
+
+# Check 7: Lint check (if golangci-lint installed)
+if command -v golangci-lint &> /dev/null; then
+    echo "  ✓ Running golangci-lint..."
+    golangci-lint run --timeout=5m ./... || {
+        echo "❌ Linting failed"
+        exit 1
+    }
+else
+    echo "  ⚠ golangci-lint not found, skipping linting"
+fi
+
+# Check 8: Run tests (if -q flag not provided)
+if [[ " $@ " != *" -q "* ]]; then
+    echo "  ✓ Running tests..."
+    go test -race -timeout=30s ./... || {
+        echo "❌ Tests failed"
+        exit 1
+    }
+fi
+
+echo ""
+echo "✅ All pre-commit checks passed!"
+echo ""

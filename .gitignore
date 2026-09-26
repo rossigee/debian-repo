@@ -1,0 +1,75 @@
+# Binaries and build outputs
+/bin/
+/debian-repo
+/repoctl
+*.o
+*.a
+*.so
+*.exe
+*.exe~
+*.dll
+*.dylib
+
+# Test & coverage
+*.out
+*.test
+*.prof
+*.coverprofile
+coverage.html
+coverage.txt
+
+# IDE and editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# Go
+vendor/
+go.work
+
+# Configuration (local/secrets - NEVER commit these)
+config.yaml
+.env
+.env.local
+.env.*.local
+secrets/
+
+# GPG and cryptographic keys (CRITICAL: NEVER commit)
+*.asc
+*.gpg
+*.key
+!test/fixtures/*.asc
+
+# Credentials and tokens (CRITICAL: NEVER commit)
+credentials.json
+*.pem
+.secrets/
+
+# Build and deployment artifacts
+dist/
+build/
+*.tar.gz
+
+# Temporary and development files
+*.tmp
+*.bak
+*.temp
+__pycache__/
+.pytest_cache/
+.pre-commit-config.yaml.bak
+
+# Claude Code settings (CRITICAL: NEVER commit - may contain tokens/secrets)
+.claude/settings.local.json*
+.claude/*.tmp*
+
+# Docker/deployment
+*.compose.local.yml
+/tmp/
+
+# Hugo documentation build
+/docs/public/
+/docs/.hugo_build.lock

@@ -1,0 +1,105 @@
+{{define "pages/install.html"}}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Installation Instructions</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="stylesheet" href="/static/navbar.css">
+<link rel="stylesheet" href="/static/install.css">
+</head>
+<body>
+{{template "navbar" .}}
+
+<main>
+
+<div class="key-info">
+<strong>GPG Key Information:</strong><br>
+Key ID: <code>{{ .KeyID }}</code><br>
+Fingerprint: <code>{{ .KeyFingerprint }}</code><br>
+</div>
+
+<h2>Setup Repository</h2>
+
+<h3>Option 1: Modern Format (.sources) - Ubuntu 24.04 LTS and newer</h3>
+
+<pre>
+# Download and add the GPG key
+curl {{ .RepositoryURL }}/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/repository.gpg
+
+# Create repository source file
+sudo tee /etc/apt/sources.list.d/repository.sources > /dev/null <<'EOF'
+Types: deb
+URIs: {{ .RepositoryURL }}
+Suites: {{ .Suite }}
+Components: main
+Signed-By: /usr/share/keyrings/repository.gpg
+EOF
+
+# Update package lists
+sudo apt update
+
+# Install packages
+sudo apt install package-name
+</pre>
+
+<h3>Option 2: Traditional Format (.list) - All Debian/Ubuntu versions</h3>
+
+<pre>
+# Download and add the GPG key
+curl {{ .RepositoryURL }}/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/repository.gpg
+
+# Add the repository
+echo "deb [signed-by=/usr/share/keyrings/repository.gpg] {{ .RepositoryURL }} {{ .Suite }} main" | \
+  sudo tee /etc/apt/sources.list.d/repository.list
+
+# Update package lists
+sudo apt update
+
+# Install packages
+sudo apt install package-name
+</pre>
+
+<h2>Verify Key</h2>
+
+<pre>
+# Check the GPG key details
+gpg --show-keys /usr/share/keyrings/repository.gpg
+
+# Verify package signatures
+apt-cache policy package-name
+</pre>
+
+<h2>Configure Credentials</h2>
+
+<p>If the repository requires authentication, create an apt credentials file:</p>
+
+<pre>
+# Create auth config directory if it doesn't exist
+sudo mkdir -p /etc/apt/auth.conf.d
+
+# Add your credentials (using the repository domain from above)
+sudo tee /etc/apt/auth.conf.d/repository.conf > /dev/null <<'EOF'
+machine debs.example.com
+login your-username
+password your-password
+EOF
+
+# Restrict permissions (required!)
+sudo chmod 600 /etc/apt/auth.conf.d/repository.conf
+
+# Test the connection
+sudo apt update
+</pre>
+
+<p><strong>Note:</strong> The auth.conf.d file permissions must be 600 (readable only by root) for apt to use the credentials.</p>
+
+</main>
+
+<footer>
+<p>Debian Repository • Powered by <a href="https://github.com/rossigee/debian-repo">debian-repo</a></p>
+</footer>
+
+</body>
+</html>
+{{end}}

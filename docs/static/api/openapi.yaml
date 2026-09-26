@@ -1,0 +1,963 @@
+openapi: 3.0.3
+info:
+  title: debian-repo API
+  description: |
+    A native Go microservice for hosting Debian package repositories with atomic uploads,
+    multi-repo isolation, and runtime-configurable serving modes.
+
+    ## Authentication
+
+    The API uses three authentication methods depending on the endpoint:
+
+    1. **HTTP Basic Auth** — For apt clients and metadata endpoints
+    2. **Bearer Token** — For CI/CD and admin operations
+    3. **OIDC** — For web UI (redirects to login)
+
+    ## Common Response Codes
+
+    - `200 OK` — Request succeeded
+    - `202 Accepted` — Request accepted, processing async (reconciliation)
+    - `400 Bad Request` — Invalid request format or parameters
+    - `401 Unauthorized` — Missing or invalid credentials
+    - `403 Forbidden` — Authenticated but lacking permission
+    - `404 Not Found` — Resource does not exist
+    - `409 Conflict` — Request conflicts with current state (e.g., protected suite)
+    - `413 Payload Too Large` — Package exceeds size limit
+    - `500 Internal Server Error` — Server error
+
+    ## Rate Limiting
+
+    No per-user rate limits. Concurrent uploads supported.
+
+  version: 1.0.0
+  contact:
+    name: debian-repo support
+    url: https://github.com/rossigee/debian-repo/issues
+  license:
+    name: GPL-3.0
+    url: https://spdx.org/licenses/GPL-3.0.html
+
+servers:
+  - url: https://debs.myorgname.com
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Metadata
+    description: Package metadata for apt clients
+  - name: Upload & Management
+    description: Package upload, removal, and organization
+  - name: HTML Pages
+    description: Web UI pages
+  - name: Data APIs
+    description: Machine-readable package information
+  - name: Health & Metrics
+    description: Service health and observability
+
+paths:
+  /dists/{suite}/Release:
+    get:
+      summary: Get Release metadata
+      description: Plaintext Release file with package list and checksums
+      tags:
+        - Metadata
+      parameters:
+        - name: suite
+          in: path
+          required: true
+          description: Release suite (e.g., stable, testing)
+          schema:
+            type: string
+            example: stable
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Release metadata
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                Origin: myorgname.com
+                Label: myorgname.com Debian Repository
+                Suite: stable
+                Codename: stable
+                Version: 1.0
+                Date: Thu, 26 Sep 2024 15:00:00 UTC
+                Architectures: amd64 arm64
+                Components: main contrib
+                Description: Debian package repository for myorgname.com infrastructure
+                MD5Sum:
+                 d8e8fca2dc0f896fd7cb4cb0031ba249 1234 main/binary-amd64/Packages
+
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /dists/{suite}/Release.gpg:
+    get:
+      summary: Get Release GPG signature
+      description: Detached GPG signature of Release file
+      tags:
+        - Metadata
+      parameters:
+        - name: suite
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: GPG signature
+          content:
+            application/pgp-signature:
+              schema:
+                type: string
+
+  /dists/{suite}/InRelease:
+    get:
+      summary: Get InRelease file
+      description: Clearsigned Release file (Release + signature combined)
+      tags:
+        - Metadata
+      parameters:
+        - name: suite
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Clearsigned Release file
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /dists/{suite}/{component}/binary-{arch}/Packages:
+    get:
+      summary: Get package list
+      description: Uncompressed list of packages for a suite/component/architecture
+      tags:
+        - Metadata
+      parameters:
+        - name: suite
+          in: path
+          required: true
+          schema:
+            type: string
+          example: stable
+        - name: component
+          in: path
+          required: true
+          schema:
+            type: string
+          example: main
+        - name: arch
+          in: path
+          required: true
+          schema:
+            type: string
+          example: amd64
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Package list (RFC 2822 format)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                Package: nginx
+                Version: 1.20.0
+                Architecture: amd64
+                Maintainer: Debian Developers
+                Installed-Size: 1234
+                Filename: pool/main/n/nginx/nginx_1.20.0_amd64.deb
+                Size: 567890
+                MD5sum: abc123def456
+                SHA1: abc123def456abc123
+                SHA256: abc123def456abc123def456abc123
+
+  /dists/{suite}/{component}/binary-{arch}/Packages.gz:
+    get:
+      summary: Get gzipped package list
+      description: Gzip-compressed package list
+      tags:
+        - Metadata
+      parameters:
+        - name: suite
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: component
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: arch
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Gzipped package list
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+
+  /pool/{component}/{filename}:
+    get:
+      summary: Download package file
+      description: |
+        Download a .deb package file from the pool.
+        Only available when `pool_serve_mode: proxy` is configured.
+      tags:
+        - Metadata
+      parameters:
+        - name: component
+          in: path
+          required: true
+          schema:
+            type: string
+          example: main
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+          example: nginx_1.20.0_amd64.deb
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Package file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '301':
+          description: Redirect to MinIO URL (when pool_serve_mode is passthrough)
+
+  /pubkey.gpg:
+    get:
+      summary: Get GPG public key
+      description: Armored GPG public key for verifying Release signatures
+      tags:
+        - Metadata
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Armored public key
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                -----BEGIN PGP PUBLIC KEY BLOCK-----
+                ...
+                -----END PGP PUBLIC KEY BLOCK-----
+
+  /api/v1/upload:
+    post:
+      summary: Upload package
+      description: |
+        Upload a Debian package to a repository.
+        The package is validated, registered, and immediately available for installation.
+      tags:
+        - Upload & Management
+      parameters:
+        - name: suite
+          in: query
+          required: false
+          description: Target suite (defaults to default_suite in config)
+          schema:
+            type: string
+          example: stable
+        - name: component
+          in: query
+          required: false
+          description: Target component (defaults to default_component in config)
+          schema:
+            type: string
+          example: main
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: The .deb package file
+      responses:
+        '200':
+          description: Package registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+              example:
+                status: registered
+                package: nginx
+                version: 1.20.0
+                architecture: amd64
+                suite: stable
+                component: main
+                filename: pool/main/n/nginx/nginx_1.20.0_amd64.deb
+
+        '400':
+          description: Invalid package format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+        '409':
+          description: Package already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+
+  /api/v1/presign:
+    post:
+      summary: Get presigned upload URL
+      description: |
+        Get a presigned URL for direct upload to MinIO.
+        Useful for large packages or to reduce load on debian-repo.
+      tags:
+        - Upload & Management
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                suite:
+                  type: string
+                  description: Target suite
+                  example: stable
+                component:
+                  type: string
+                  description: Target component
+                  example: main
+                filename:
+                  type: string
+                  description: Package filename
+                  example: nginx_1.20.0_amd64.deb
+              required:
+                - suite
+                - component
+                - filename
+      responses:
+        '200':
+          description: Presigned URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presigned_url:
+                    type: string
+                    format: uri
+                    example: https://minio.minio.internal/debs-myorgname/...
+                  expires_in:
+                    type: integer
+                    description: URL expiration time in seconds
+                    example: 900
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/register:
+    post:
+      summary: Register uploaded package
+      description: |
+        Register a package that was uploaded via presigned URL.
+        Called after uploading the file directly to MinIO.
+      tags:
+        - Upload & Management
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                suite:
+                  type: string
+                  description: Target suite
+                  example: stable
+                component:
+                  type: string
+                  description: Target component
+                  example: main
+                staging_key:
+                  type: string
+                  description: MinIO key where file was staged
+                  example: _staging/abc123.deb
+              required:
+                - suite
+                - component
+                - staging_key
+      responses:
+        '200':
+          description: Package registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/dists/{suite}/{component}/remove/{package}/{version}/{arch}:
+    delete:
+      summary: Remove package version
+      description: |
+        Remove a specific package version from a suite.
+        If this is the last package in the suite and the suite is protected, returns 409 unless force=true.
+      tags:
+        - Upload & Management
+      parameters:
+        - name: suite
+          in: path
+          required: true
+          schema:
+            type: string
+          example: stable
+        - name: component
+          in: path
+          required: true
+          schema:
+            type: string
+          example: main
+        - name: package
+          in: path
+          required: true
+          schema:
+            type: string
+          example: nginx
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 1.20.0
+        - name: arch
+          in: path
+          required: true
+          schema:
+            type: string
+          example: amd64
+        - name: force
+          in: query
+          required: false
+          description: Force removal even if suite would be fully drained
+          schema:
+            type: string
+            enum: ['true']
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Package removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: removed
+                  package:
+                    type: string
+                  suite:
+                    type: string
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+        '409':
+          description: Suite is protected and would be fully drained
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/admin/move:
+    post:
+      summary: Move packages between suites
+      description: |
+        Move packages from one suite to another (e.g., testing → stable).
+        Supports glob patterns and dry-run mode.
+      tags:
+        - Upload & Management
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveRequest'
+      responses:
+        '200':
+          description: Move completed or dry-run preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveResponse'
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+        '409':
+          description: Source suite is protected and would be fully drained
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/admin/reconcile:
+    post:
+      summary: Start reconciliation job
+      description: |
+        Asynchronously rebuild the index from pool contents.
+        Returns 202 with a job ID for polling status.
+      tags:
+        - Upload & Management
+      security:
+        - bearerAuth: []
+      responses:
+        '202':
+          description: Reconciliation job accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                    example: job-abc123
+                  status:
+                    type: string
+                    example: running
+
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/reconcile/{job_id}:
+    get:
+      summary: Get reconciliation job status
+      description: Poll the status of a reconciliation job
+      tags:
+        - Upload & Management
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [running, completed, failed]
+                  progress:
+                    type: integer
+                    description: Percentage complete (0-100)
+                  result:
+                    type: object
+                    description: Results when status is completed or failed
+
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /index.json:
+    get:
+      summary: Get package index as JSON
+      description: |
+        Machine-readable summary of latest package versions across all distributions.
+        Useful for dashboards, CI/CD tools, and automation.
+      tags:
+        - Data APIs
+      responses:
+        '200':
+          description: Package index
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexJSON'
+
+  /dists/{suite}/feed.atom:
+    get:
+      summary: Get Atom feed of recent packages
+      description: |
+        Atom feed with recent package uploads for a distribution suite.
+        Subscribe to this endpoint in any feed reader to track package releases.
+      tags:
+        - Data APIs
+      parameters:
+        - name: suite
+          in: path
+          required: true
+          description: Release suite (e.g., stable, testing)
+          schema:
+            type: string
+            example: stable
+      responses:
+        '200':
+          description: Atom feed XML
+          content:
+            application/atom+xml:
+              schema:
+                type: string
+              example: |
+                <?xml version="1.0" encoding="UTF-8"?>
+                <feed xmlns="http://www.w3.org/2005/Atom">
+                  <id>urn:debian-repo:https://debs.myorgname.com:stable</id>
+                  <title>Debian Repository stable Suite</title>
+                  <updated>2024-09-26T15:00:00Z</updated>
+                  <link rel="self" href="https://debs.myorgname.com/dists/stable/feed.atom" type="application/atom+xml"/>
+                  <entry>
+                    <id>urn:debian-repo:https://debs.myorgname.com:stable:nginx:1.20.0:amd64</id>
+                    <title>nginx 1.20.0 (amd64)</title>
+                    <summary>High performance web server</summary>
+                    <published>2024-09-26T14:55:00Z</published>
+                    <updated>2024-09-26T14:55:00Z</updated>
+                    <link rel="alternate" href="https://debs.myorgname.com/pool/main/n/nginx/nginx_1.20.0_amd64.deb" type="application/x-deb"/>
+                  </entry>
+                </feed>
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /:
+    get:
+      summary: Homepage
+      description: HTML landing page with package browser and installation instructions
+      tags:
+        - HTML Pages
+      responses:
+        '200':
+          description: Homepage HTML
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /install.html:
+    get:
+      summary: Installation guide
+      description: HTML page with installation instructions and credential setup
+      tags:
+        - HTML Pages
+      responses:
+        '200':
+          description: Installation guide HTML
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /gpg-key.html:
+    get:
+      summary: GPG key information
+      description: HTML page with GPG key details and download
+      tags:
+        - HTML Pages
+      responses:
+        '200':
+          description: GPG key page HTML
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /healthz:
+    get:
+      summary: Liveness probe
+      description: Service is alive and responding
+      tags:
+        - Health & Metrics
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: Service is ready to accept requests
+      tags:
+        - Health & Metrics
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Prometheus-format metrics for monitoring
+      tags:
+        - Health & Metrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: HTTP Basic Authentication for apt clients
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+      description: Bearer token for CI/CD operations
+
+  schemas:
+    UploadResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: registered
+        package:
+          type: string
+          example: nginx
+        version:
+          type: string
+          example: 1.20.0
+        architecture:
+          type: string
+          example: amd64
+        suite:
+          type: string
+          example: stable
+        component:
+          type: string
+          example: main
+        filename:
+          type: string
+          example: pool/main/n/nginx/nginx_1.20.0_amd64.deb
+
+    MoveRequest:
+      type: object
+      properties:
+        from_suite:
+          type: string
+          description: Source suite
+          example: testing
+        to_suite:
+          type: string
+          description: Destination suite
+          example: stable
+        packages:
+          type: array
+          items:
+            type: string
+          description: Package glob patterns (optional, defaults to all)
+          example: ['nginx*', 'postgres*']
+        component:
+          type: string
+          description: Limit to component (optional, defaults to all)
+          example: main
+        dry_run:
+          type: boolean
+          description: Preview without applying changes
+          example: true
+        force:
+          type: boolean
+          description: Force move even if source suite would be fully drained
+          example: false
+      required:
+        - from_suite
+        - to_suite
+
+    MoveResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [dry_run, moved]
+          example: dry_run
+        from_suite:
+          type: string
+        to_suite:
+          type: string
+        count:
+          type: integer
+          description: Number of packages matched
+          example: 2
+        moved:
+          type: array
+          items:
+            type: object
+            properties:
+              package:
+                type: string
+              version:
+                type: string
+              architecture:
+                type: string
+              filename:
+                type: string
+
+    IndexJSON:
+      type: object
+      properties:
+        packages:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              latest_version:
+                type: string
+              latest_architecture:
+                type: string
+              available_architectures:
+                type: array
+                items:
+                  type: string
+              latest_size_bytes:
+                type: integer
+              uploaded_at:
+                type: string
+                format: date-time
+              description:
+                type: string
+              maintainer:
+                type: string
+        distributions:
+          type: array
+          items:
+            type: string
+        components:
+          type: array
+          items:
+            type: string
+        generated_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+      required:
+        - message
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Unauthorized (missing or invalid credentials)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: Forbidden (authenticated but lacks permission)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    PayloadTooLarge:
+      description: Payload too large (exceeds max package size)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

@@ -1,0 +1,26 @@
+{{define "user-menu"}}
+{{if .OIDCEnabled}}
+  {{if .IsAuthenticated}}
+    <!-- User dropdown menu (authenticated) -->
+    <div class="user-menu">
+      <button class="user-button" id="user-dropdown-btn">
+        <span class="user-icon">👤</span>
+        <span class="user-name">{{ .UserName }}</span>
+        <span class="dropdown-arrow">▼</span>
+      </button>
+      <div class="user-dropdown" id="user-dropdown">
+        <div class="dropdown-header">
+          <div class="user-email">{{ .UserEmail }}</div>
+        </div>
+        <a href="/profile" class="dropdown-item">👤 Profile</a>
+        <div class="dropdown-divider"></div>
+        <a href="/logout" class="dropdown-item logout-item">🚪 Logout</a>
+      </div>
+    </div>
+    <script src="/static/user-menu.js"></script>
+  {{else}}
+    <!-- Login button (not authenticated) -->
+    <a href="/auth/login" class="login-button">Login</a>
+  {{end}}
+{{end}}
+{{end}}

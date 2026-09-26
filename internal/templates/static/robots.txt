@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+Allow: /dists/
+Allow: /pool/
+Disallow: /api/
+Disallow: /auth/
+Disallow: /admin/
+Disallow: /metrics
+
+# Package index
+Allow: /index.json
+Allow: /pubkey.gpg
+
+# Install guides
+Allow: /install.html
+Allow: /gpg-key.html

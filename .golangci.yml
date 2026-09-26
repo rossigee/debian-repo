@@ -1,0 +1,65 @@
+version: "2"
+
+run:
+  go: "1.27"
+  timeout: 5m
+  allow-parallel-runners: true
+  tests: false
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - copyloopvar
+    - misspell
+    - unconvert
+    - prealloc
+    - revive
+    - ginkgolinter
+    - nakedret
+  disable-all: true
+
+linters-settings:
+  revive:
+    enable-all-rules: false
+    rules:
+      - name: blank-imports
+        disabled: false
+      - name: context-as-argument
+        disabled: false
+      - name: context-keys-type
+        disabled: false
+      - name: error-naming
+        disabled: false
+      - name: error-return
+        disabled: false
+      - name: error-strings
+        disabled: false
+      - name: errorf
+        disabled: false
+      - name: exported
+        disabled: false
+      - name: increment-decrement
+        disabled: false
+      - name: indent-error-flow
+        disabled: false
+      - name: receiver-naming
+        disabled: false
+      - name: time-naming
+        disabled: false
+      - name: unexported-return
+        disabled: false
+      - name: unused-parameter
+        disabled: false
+      - name: var-declaration
+        disabled: false
+      - name: var-naming
+        disabled: false
+
+issues:
+  exclude-presets:
+    - comments
+    - common-false-positives
+    - legacy
+    - std-error-handling
+  max-issues-per-linter: 0
+  max-same-issues: 0

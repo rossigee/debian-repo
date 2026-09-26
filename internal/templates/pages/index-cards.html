@@ -1,0 +1,96 @@
+{{define "pages/index-cards.html"}}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ .Title }}</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="stylesheet" href="/static/navbar.css">
+<link rel="stylesheet" href="/static/cards.css">
+</head>
+<body>
+{{template "navbar" .}}
+
+<main>
+<section class="overview">
+<h2>Available Packages</h2>
+<p><strong>{{ .TotalPackages }} packages</strong> available{{if .ActiveSuite}} in suite <strong>{{ .ActiveSuite }}</strong>{{end}}</p>
+{{if .ActiveSuite}}<p><a href="/install.html?suite={{ .ActiveSuite }}" class="card-link">Install instructions for {{ .ActiveSuite }} →</a></p>{{end}}
+<p>Last updated: {{ .LastUpdated.Format "2006-01-02 15:04 UTC" }}</p>
+{{if .Suites}}
+<nav class="suite-tabs">
+  {{range .Suites}}
+  {{if .Name}}
+  <a href="/?suite={{ .Name }}" class="suite-tab{{if .Active}} active{{end}}">{{ .Name }} ({{ .Count }})</a>
+  {{else}}
+  <a href="/" class="suite-tab{{if .Active}} active{{end}}">All ({{ .Count }})</a>
+  {{end}}
+  {{end}}
+</nav>
+{{end}}
+</section>
+
+<section class="packages-grid">
+{{if .Packages}}
+<div class="cards-container">
+{{range .Packages}}
+<div class="package-card">
+  <div class="card-header">
+    <h3 class="package-name">{{ .Name }}</h3>
+    <span class="badge badge-version">v{{ .LatestVersion }}</span>
+  </div>
+
+  {{if .Description}}
+  <p class="card-description">{{ .Description }}</p>
+  {{end}}
+
+  <div class="card-meta">
+    {{if .Section}}
+    <span class="meta-badge">{{ .Section }}</span>
+    {{end}}
+    {{if .Suites}}
+    <div class="suite-pills">
+      {{range .Suites}}
+      <a href="/?suite={{ . }}" class="suite-pill">{{ . }}</a>
+      {{end}}
+    </div>
+    {{end}}
+    {{if .Architectures}}
+    <div class="arch-pills">
+      {{range .Architectures}}
+      <span class="arch-pill">{{ . }}</span>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+
+  {{if .Maintainer}}
+  <p class="card-maintainer">Maintained by: <span class="maintainer-name">{{ .Maintainer }}</span></p>
+  {{end}}
+
+  <a href="/packages/{{ .Name }}" class="card-link">View Details →</a>
+</div>
+{{end}}
+</div>
+{{else}}
+<div class="empty-state">
+  <p>No packages available</p>
+</div>
+{{end}}
+</section>
+</main>
+
+<footer>
+<p><strong>Debian Repository</strong></p>
+<div class="footer-links">
+<a href="/">Repository</a>
+<a href="/install.html">Installation</a>
+<a href="/gpg-key.html">GPG Key</a>
+<a href="https://github.com/rossigee/debian-repo">Source Code</a>
+</div>
+<p>Powered by <a href="https://github.com/rossigee/debian-repo">debian-repo</a> <code>{{ .VersionString }}</code></p>
+<p style="font-size: 12px; margin-top: 16px;">Last updated: {{ .LastUpdated.Format "2006-01-02 15:04 UTC" }}</p>
+</footer>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,110 @@
+{{define "pages/package-detail.html"}}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ .Title }}</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="stylesheet" href="/static/navbar.css">
+<link rel="stylesheet" href="/static/package-detail.css">
+</head>
+<body>
+{{template "navbar" .}}
+
+<main>
+<div class="breadcrumb"><a href="/">← Back to Packages</a></div>
+<section class="package-info">
+<div class="info-grid">
+  <div class="info-item">
+    <label>Package Name</label>
+    <span class="info-value">{{ .PackageName }}</span>
+  </div>
+
+  {{if .Section}}
+  <div class="info-item">
+    <label>Section</label>
+    <span class="info-value">{{ .Section }}</span>
+  </div>
+  {{end}}
+
+  {{if .Priority}}
+  <div class="info-item">
+    <label>Priority</label>
+    <span class="info-value">{{ .Priority }}</span>
+  </div>
+  {{end}}
+
+  {{if .Maintainer}}
+  <div class="info-item">
+    <label>Maintainer</label>
+    <span class="info-value">{{ .Maintainer }}</span>
+  </div>
+  {{end}}
+</div>
+
+{{if .Description}}
+<div class="description-section">
+  <h3>Description</h3>
+  <p>{{ .Description }}</p>
+</div>
+{{end}}
+
+{{if .Depends}}
+<div class="dependencies-section">
+  <h3>Dependencies</h3>
+  <p class="dependencies"><code>{{ .Depends }}</code></p>
+</div>
+{{end}}
+</section>
+
+{{if .Versions}}
+<section class="versions-section">
+<h2>Available Versions</h2>
+
+<div class="versions-table-container">
+<table class="versions-table">
+  <thead>
+    <tr>
+      <th>Version</th>
+      <th>Architecture</th>
+      <th>Size</th>
+      <th>SHA256</th>
+      <th>Distributions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Versions}}
+    <tr class="version-row">
+      <td class="version-cell">{{ .Version }}</td>
+      <td class="arch-cell">{{ .Architecture }}</td>
+      <td class="size-cell">{{ formatBytes .Size }}</td>
+      <td class="hash-cell">
+        <code class="checksum" title="{{ .SHA256 }}">{{ truncateHash .SHA256 }}</code>
+      </td>
+      <td class="dist-cell">
+        {{range .Distributions}}
+        <span class="dist-badge">{{ . }}</span>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
+</section>
+{{end}}
+</main>
+
+<footer>
+<p><strong>Debian Repository</strong></p>
+<div class="footer-links">
+<a href="/">Repository</a>
+<a href="/install.html">Installation</a>
+<a href="/gpg-key.html">GPG Key</a>
+<a href="https://github.com/rossigee/debian-repo">Source Code</a>
+</div>
+<p>Powered by <a href="https://github.com/rossigee/debian-repo">debian-repo</a></p>
+</footer>
+</body>
+</html>
+{{end}}

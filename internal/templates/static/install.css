@@ -1,0 +1,19 @@
+.key-info {
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 25px 0;
+  box-shadow: var(--shadow-md);
+}
+
+.key-info strong {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.key-info code {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-light);
+}

@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.27.1'
+
+      - name: Extract version from tag
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "COMMIT=$COMMIT" >> $GITHUB_ENV
+          echo "DATE=$DATE" >> $GITHUB_ENV
+
+      - name: Verify tag matches VERSION file
+        run: |
+          if [ "${{ env.VERSION }}" != "v$(cat VERSION)" ]; then
+            echo "❌ Tag version does not match VERSION file"
+            exit 1
+          fi
+
+      - name: Build release binaries
+        run: |
+          mkdir -p build/releases
+
+          # Build debian-repo
+          CGO_ENABLED=0 go build \
+            -ldflags "-X git.golder.lan/rossgolderltd/debian-repo/internal/version.Version=${{ env.VERSION }} \
+                      -X git.golder.lan/rossgolderltd/debian-repo/internal/version.Commit=${{ env.COMMIT }} \
+                      -X git.golder.lan/rossgolderltd/debian-repo/internal/version.Date=${{ env.DATE }}" \
+            -o build/releases/debian-repo \
+            ./cmd/debian-repo
+
+          # Build repoctl
+          CGO_ENABLED=0 go build \
+            -ldflags "-X git.golder.lan/rossgolderltd/debian-repo/internal/version.Version=${{ env.VERSION }} \
+                      -X git.golder.lan/rossgolderltd/debian-repo/internal/version.Commit=${{ env.COMMIT }} \
+                      -X git.golder.lan/rossgolderltd/debian-repo/internal/version.Date=${{ env.DATE }}" \
+            -o build/releases/repoctl \
+            ./cmd/repoctl
+
+          # Create checksums
+          cd build/releases
+          sha256sum * > SHA256SUMS
+          sha1sum * > SHA1SUMS
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg VERSION=${{ env.VERSION }} \
+            --build-arg COMMIT=${{ env.COMMIT }} \
+            --build-arg DATE=${{ env.DATE }} \
+            -t ghcr.io/rossigee/debian-repo:latest \
+            -t ghcr.io/rossigee/debian-repo:${{ env.VERSION }} \
+            .
+
+      - name: Run Trivy security scan
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.48.0
+          trivy fs \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --no-progress \
+            .
+
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login \
+            -u "${{ github.actor }}" \
+            --password-stdin ghcr.io
+
+      - name: Push Docker images to registry
+        run: |
+          docker push ghcr.io/rossigee/debian-repo:latest
+          docker push ghcr.io/rossigee/debian-repo:${{ env.VERSION }}
+
+      - name: Create GitHub release
+        run: |
+          # Create release with artifacts
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "tag_name": "${{ env.VERSION }}",
+              "name": "Release ${{ env.VERSION }}",
+              "body": "## Release ${{ env.VERSION }}\n\nBuilt on: ${{ env.DATE }}\nCommit: ${{ env.COMMIT }}\n\n### Changes\nSee commit history for details.\n\n### Docker Image\n```\ndocker pull ghcr.io/rossigee/debian-repo:${{ env.VERSION }}\n```",
+              "draft": false,
+              "prerelease": false
+            }' \
+            https://api.github.com/repos/rossigee/debian-repo/releases || true
+
+      - name: Upload release binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries-${{ env.VERSION }}
+          path: build/releases/
+          retention-days: 90

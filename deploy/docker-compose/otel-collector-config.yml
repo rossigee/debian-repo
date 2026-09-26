@@ -1,0 +1,36 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "0.0.0.0:4318"
+      grpc:
+        endpoint: "0.0.0.0:4317"
+
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+  attributes:
+    actions:
+      - key: service.name
+        value: debian-repo
+        action: upsert
+
+exporters:
+  logging:
+    loglevel: debug
+
+  # For production: configure SignOz, Jaeger, or other OTLP backend
+  # Example for SignOz:
+  # otlp:
+  #   endpoint: "tracing.internal:4317"
+  #   headers:
+  #     Authorization: "Bearer <token>"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch, attributes]
+      exporters: [logging]
