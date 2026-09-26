@@ -8,6 +8,26 @@
 
 v0.5.0 introduces **atomic pool file deletion** for the remove deb API. When packages are removed from the repository, their `.deb` files are now automatically deleted from MinIO pool storage, eliminating orphaned files and ensuring consistent state between the package index and pool contents.
 
+## Security Updates
+
+### Dependency Security Fixes
+
+This release updates critical dependencies to address multiple security vulnerabilities:
+
+**gRPC-Go: 1.67.1 → 1.84.0**
+- ✅ CVE-2026-33186 (CRITICAL): Authorization bypass via malformed `:path` header
+- ✅ CVE-2026-84445 (HIGH): DoS via missing `:authority` and `Host` headers
+- ✅ CVE-2026-84304 (HIGH): Heap memory exhaustion via HTTP/2 frame fragmentation
+- ✅ CVE-2026-84303 (MEDIUM): xDS RBAC HTTP filter bypass via header case sensitivity
+- ✅ GHSA-hrxh-6v49-42gf (HIGH): xDS RBAC authorization bypass & rapid reset bypass
+
+**OpenTelemetry-Go: 1.31.0 → 1.46.0**
+- ✅ CVE-2026-81870 (LOW): Exporter config logging may leak endpoint URLs
+- ✅ CVE-2026-39883 (HIGH): BSD `kenv` command path hijacking vulnerability
+- ✅ CVE-2026-24051 (HIGH): macOS `ioreg` command path hijacking vulnerability
+
+All tests pass with race detector enabled.
+
 ## Major Features
 
 ### Atomic Pool File Deletion
