@@ -1,135 +1,105 @@
-# Release Notes: v0.5.1
+# Release Notes: v0.5.2
 
 **Release Date**: 2026-09-27
-**Git Tag**: `v0.5.1`
-**Docker Image**: `ghcr.io/rossigee/debian-repo:v0.5.1`
+**Git Tag**: `v0.5.2`
+**Docker Image**: `ghcr.io/rossigee/debian-repo:v0.5.2`
 
 ## Summary
 
-v0.5.1 fixes a bug that made `apt-get upgrade` reinstall **every package in this repository, at the identical version, on every run, forever**. The packages were reported as being upgraded, never as reinstalled, and apt offered no diagnostic of any kind. All four published packages were affected.
+v0.5.2 changes how the service starts and how it names its images. It is a
+behavioural release for operators, not a metadata change: the `Packages` and
+`Release` content served to apt clients is byte-for-byte equivalent to v0.5.1.
 
-The bug was not in apt. It was in the `Packages` metadata this service rendered.
+Two independent changes are included.
 
-## Bug Fixes
+## Reliability
 
-### apt reinstalled every package on every upgrade
+### Snapshot hydration no longer blocks startup
 
-**Symptom**:
+**Symptom** — if MinIO was slow or briefly unavailable at startup, the process
+refused connections for the whole duration. A TCP health check saw a closed port
+and reported the service down, and apt clients received a connection reset rather
+than a retryable response.
 
-```
-$ sudo apt-get dist-upgrade
-The following packages will be upgraded:
-  bucketsyncd fetch-k8s-cert python3-backups vault-tool
-4 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
-Need to get 0 B/14.8 MB of archives.
-...
-Unpacking bucketsyncd (0.4.4-1) over (0.4.4-1)
-Setting up bucketsyncd (0.4.4-1)
-```
+**Cause** — snapshot load and metadata rendering ran synchronously in `main()`
+before `ListenAndServe`. The listener was not bound until the whole hydration
+step completed.
 
-Running it again produced identical output. `Need to get 0 B` was the tell: the archives were already cached, so apt was re-unpacking 14.8 MB of byte-identical content and churning 20.9 MB on every invocation, indefinitely.
+**Change** — hydration now runs in the background after the listener is up. Until
+it finishes, the repository reports itself unhydrated:
 
-**Root cause** — two independent defects in the rendered metadata, each sufficient on its own:
+- `/healthz` and `/health` return `200` (liveness — the process is running)
+- `/readyz` returns `503` with `Retry-After: 5` (readiness — metadata not served yet)
+- metadata routes return `503` with `Retry-After: 5` until hydration completes
 
-1. **`Installed-Size` was never emitted.** The field whitelist in `RenderPackages` omitted it, so the served stanza carried no `Installed-Size` while dpkg had recorded one in `/var/lib/dpkg/status`.
+This gives orchestrators an honest liveness/readiness split and gives apt a
+retryable response instead of a connection reset.
 
-2. **Multi-line field values were written unindented.** `validate.parseControlFile` strips the fold whitespace from continuation lines, and `RenderPackages` wrote the value back verbatim, so `Description` continuation lines were emitted at column zero. Debian Policy 5.1 requires continuation lines to begin with a space or tab.
+**Operational note** — readiness is now meaningful. A deployment that only checks
+`/health` will report healthy during hydration; readiness-gated rollout should
+check `/readyz`.
 
-**Mechanism** — apt hashes `Installed-Size`, `Depends`, `Pre-Depends`, `Conflicts`, `Breaks` and `Replaces` from both the `Packages` entry and the dpkg status entry (`debListParser::VersionHash`). When the two disagree, `pkgCacheGenerator::MergeListVersion` does not merge them, so the candidate stops being pointer-identical to the current version and `pkgDepCache::MarkInstall` marks it for install. The reinstall is deliberate on apt's part — it lets apt converge when a package has been locally rebuilt or repacked at an unchanged version. What made this pathological is that `VerIterator::CompareVer` infers ordering from position in the version list rather than comparing version strings, so the result was labelled an *upgrade* rather than a reinstall, and the diverging field was never named.
+**Known limitation** — `repo.BuildRepo` still calls `EnsureBucket` synchronously
+before the listener starts. If MinIO is unreachable *and* the bucket is missing,
+startup still blocks. The async path only helps once the process is serving.
 
-**Evidence** — implementing apt's `VersionHash()` exactly and comparing the served stanzas against the real dpkg status:
+## Reliability
 
-| package | served (before) | after | dpkg status |
-|---|---|---|---|
-| bucketsyncd | 5381 | 112655591 | 112655591 |
-| fetch-k8s-cert | 5381 | 266115125 | 266115125 |
-| python3-backups | 5381 | 3285827724 | 3285827724 |
-| vault-tool | 5381 | 194049126 | 194049126 |
+### Hydration is now covered by tests
 
-`5381` is apt's seed value, meaning apt found **none** of the six hashed fields in every served stanza. After the fix each hash matches dpkg exactly.
+Hydration was the whole runtime change and had no tests: it lived in `package
+main`, which has no test files, and read its snapshot through a concrete
+`*minio.SnapshotStore` that no test could substitute.
 
-The four packages failed for different reasons, which is worth recording for future regressions:
+It now lives in `internal/repo/hydrate.go` and takes its snapshot source as a
+`SnapshotLoader` interface, which `*minio.SnapshotStore` already satisfies.
+Production behaviour is unchanged.
 
-- `fetch-k8s-cert` — pure `Description` case; its `.deb` carries no `Installed-Size` on either side
-- `vault-tool` — pure `Installed-Size` case; single-line `Description` and no `Depends` to swallow
-- `bucketsyncd`, `python3-backups` — both defects
+The tests caught a nil-interface bug in the refactor: passing a nil
+`*minio.SnapshotStore` into `SnapshotLoader` yields a non-nil interface holding a
+nil pointer, so the nil check never fired and `GetLatestSnapshot` segfaulted.
+This could not occur in production, where `BuildRepo` always sets the field, but
+it is a live footgun for any repository built without a store.
 
-**Verification** — `apt-cache policy` shows the merge directly. Before, the identical version was pinned twice; after, it is a single pin with both sources:
+## CI
 
-```
-before:  0.4.4-1 500 → Packages          after:  *** 0.4.4-1 500 → Packages
-         *** 0.4.4-1 100 → dpkg status                        100 → dpkg status
-```
+### Releases are the sole owner of version tags
 
-## Correctness Fixes
+Previously `build.yaml` pushed `:latest` and `:<version>` on every push to
+`master`, and `release.yaml` pushed `:<version>` again on tag. Two workflows
+wrote the same tags, and a push to `master` could republish a version number that
+had already been released.
 
-### Missing control fields
+`build.yaml` no longer writes version tags. It still pushes `:latest` so that
+`master` remains observable. `release.yaml` is now the only writer of
+version-suffixed tags.
 
-The same field whitelist dropped `Homepage`, `Multi-Arch`, `Provides` and `Enhances`, all of which belong in a binary `Packages` file. A missing `Provides` is the significant one: a package that provides a virtual package was unresolvable as a dependency from this repository. All are now rendered.
+**Migration** — image tags are now always `v`-prefixed and match the git tag
+exactly. `ghcr.io/rossigee/debian-repo:v0.5.1`, not `:0.5.1`.
 
-### Continuation-line folding
+The bare `:0.5.1` tag published by the old workflow still exists in the registry
+and will not be republished. New deployments must pin a `v`-prefixed tag.
 
-`RenderPackages` now folds multi-line field values through a single `writeField` helper, which is the exact inverse of the whitespace stripping `parseControlFile` performs. Because the correction is applied at render time rather than parse time, packages **already persisted in MinIO** are fixed on the next re-render without needing re-upload or a reconcile.
+**Release validation** — the release job now fails fast if the pushed tag does not
+match the `VERSION` file, so a mismatched tag cannot produce a mislabelled image.
 
-## Security
+## Deployment
 
-### Test GPG key no longer committed
+Pin by release tag, not by `latest`:
 
-`test/fixtures/test-key.asc` contained two armored PGP private key blocks and had been in history since the initial commit, on a public repository with GitHub secret scanning and push protection both enabled. The key was throwaway, so nothing needed rotating, but a private key in public git is a standing alert and teaches every secret scanner to be ignored.
-
-Tests now generate a throwaway key per test via `internal/testsupport/gpgtest`. Ed25519 is used rather than the library default of RSA-2048, so generation is effectively free — the package's own tests run in 3 ms. The key is written under `t.TempDir()` with mode `0600`, never touching the working tree, and is removed when the test finishes.
-
-Two loopholes that had allowed the key in were closed at the same time:
-
-- `.gitignore` contained `!test/fixtures/*.asc`, a negation sitting two lines below the `*.asc` rule it defeated. Removed.
-- The pre-commit hook's key and credentials checks used `git diff --cached --name-only`, which **includes deletions**, so once a key was committed the hook made it impossible to ever remove. Both checks now use `--diff-filter=ACMR`. Verified in both directions: adding a key is still rejected with exit 1, and removing one is now allowed.
-
-### Latent test hole closed
-
-Five tests previously did:
-
-```go
-if _, err := os.Stat(testKeyPath); err != nil {
-    t.Skipf("Test GPG key not found at %s", testKeyPath)
-}
+```yaml
+image: ghcr.io/rossigee/debian-repo:v0.5.2
 ```
 
-A missing key silently **skipped** every test that signs a Release file. They now fail loudly, and all four end-to-end tests are confirmed running rather than skipping.
-
-## Observability
-
-### CI token identity recorded on request logs
-
-`RequestTracer` logged `remote_addr`, method, path, status and `auth_type`, where `auth_type` is only the first six characters of the `Authorization` header — always the literal string `Bearer` for CI callers. `user` was populated only for BasicAuth. A request made with a CI bearer token was therefore indistinguishable from any other bearer caller.
-
-This was not theoretical: a stuck client polling a reconcile job produced 2,287 identical `WARN` lines that could not be attributed to either configured token. The identity was already resolved and trustworthy — the auth middleware does `r.Header.Set("X-CI-Identity", identity)` from `constantTimeTokenLookup`, overwriting whatever the caller sent — so no trust boundary changed and no new plumbing was needed.
-
-## Internal
-
-### Image publishing was blocked
-
-`build.yaml` ran the Trivy installer with no `continue-on-error` and no timeout, under the runner's `bash -e`. The installer resolves the version and then exits 1, which fails the step, which fails the job before `Login to GitHub Container Registry` and `Push Docker image` run. Every run in this repository's history was red for that reason, including the initial commit, so the workflow had never published an image.
-
-Neither workflow declared a `permissions:` block, so `GITHUB_TOKEN` inherited the repository default, which is read-only — so the push was denied as soon as it was finally reached.
-
-Both fixed:
-
-- `build.yaml`: `continue-on-error`, timeouts, and `contents: read` + `packages: write`
-- `release.yaml`: `contents: write` + `packages: write`, as its final step creates a GitHub release through the API
-
-Neither change is sufficient alone. With both, `build` is green and images publish.
-
-Publish steps are now gated on `if: github.event_name != 'pull_request'`, because this workflow also runs for pull requests and an unconditional push let a pull request overwrite `:latest` — the tag the deployed service tracks.
+This is a rolling change with no schema or API break. Existing clients need no
+action.
 
 ## Testing
 
-```
-go build ./...                OK
-go vet ./...                  OK
-go test -race ./...           all packages pass
-golangci-lint run             0 issues
-gofmt -l internal/ cmd/ test/ clean
-.githooks/pre-commit          all 8 checks pass
-```
-
-New tests: `internal/aptmeta` covers the rendered `Packages` against a parser that reproduces apt's cross-line colon search, asserting that every field apt hashes round-trips and that fold lines are indented. `internal/logging` had no tests and now covers CI identity recording. `internal/testsupport/gpgtest` covers key generation, permissions, uniqueness, and a real sign round-trip.
+- `go build ./...`, `go vet ./...`, `gofmt -l .` clean
+- `go test -race ./...` green across all 18 packages
+- `Hydrate` and `loadSnapshot` 0% → 100%; `HydrateAll` 0% → 92%;
+  `MarkHydrated`/`Hydrated` 0% → 100%
+- `TestHydrateProducesVerifiableSignatures` verifies `Release.gpg` and the
+  `InRelease` clearsign against the repository key and asserts the clearsigned
+  payload matches the detached `Release` content
