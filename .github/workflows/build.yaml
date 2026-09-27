@@ -18,12 +18,12 @@ jobs:
     #
     # The intended split, once self-hosted runners are registered under the label
     # `trusted`:
-    #   pull_request      -> ubuntu-latest                        (untrusted)
+    #   pull_request      -> ubuntu-26.04                        (untrusted)
     #   push to master    -> [self-hosted, linux, x64, trusted]   (trusted)
     #   release.yaml tags -> [self-hosted, linux, x64, trusted]   (trusted)
     # Do not move the master push onto a self-hosted label until a runner matching
     # it is actually registered, or the job will queue forever with no failure.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write

@@ -21,7 +21,7 @@ permissions:
 jobs:
   digest:
     name: weekly digest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Summarise milestones, open work, stale items and recent merges
         env:

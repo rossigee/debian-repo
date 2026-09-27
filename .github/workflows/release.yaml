@@ -10,7 +10,7 @@ jobs:
     # is a trusted event and is the right place for self-hosted capacity, but
     # pointing this at a label with no registered runner queues the release
     # silently forever. See the note in build.yaml for the intended split.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       packages: write

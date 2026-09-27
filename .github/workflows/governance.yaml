@@ -22,7 +22,7 @@ jobs:
   linked-issue:
     name: linked-issue
     # pull_request, not pull_request_target: this needs no write access at all.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: github.event_name == 'pull_request'
     steps:
       - name: Require a linked issue
@@ -36,7 +36,7 @@ jobs:
 
   area-labels:
     name: area-labels
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: github.event_name == 'pull_request_target'
     permissions:
       contents: read
