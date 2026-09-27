@@ -12,6 +12,7 @@ immutable once accepted. Supersede rather than edit.
 | 0003 | Per-repo public/private visibility | Accepted | 2026-09-27 |
 | 0004 | UI framework: Bootstrap 5.3.8, vendored, Sass at release time | Accepted | 2026-09-27 |
 | 0005 | Release workflows are the sole owner of version tags | Accepted | 2026-09-27 |
+| 0006 | Pull-through cache for upstream repositories, not a mirror | Accepted | 2026-09-27 |
 
 ## Adding a decision
 

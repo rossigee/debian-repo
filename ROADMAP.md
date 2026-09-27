@@ -136,6 +136,59 @@ pages are still marked "(TBD)". OpenAPI 1.0.0.
 
 ---
 
+## After v1.0 — milestone `1.1.0`
+
+### Pull-through cache for upstream repositories
+
+Teams want Debian packages available through the same service that publishes their
+own. The feature is an **opaque byte cache of upstream `pool/` objects**, not a
+mirror. See [ADR 0006](docs/adr/0006-pull-through-cache.md).
+
+A repository configured as a mirror relays `dists/` from the upstream verbatim and
+fetches `pool/` objects on first request, storing them. It never claims anything
+about the content.
+
+**Why this is safe without any signing work:** apt verifies every `.deb` against the
+SHA256 in the `Packages` file it already holds, so a caching proxy inherits apt's
+integrity model. Tampering produces an install failure, not code execution. That
+removes the need for upstream `Release` verification, re-signing, or any trust
+assertion.
+
+**What was rejected.** An *eager index sync* that re-renders and signs our own
+metadata — a curated mirror — would make this project responsible for being a
+correct Debian mirror across epoch bumps, renames and security point releases. That
+is an ongoing operational commitment, and it is declined. *Fully lazy population*,
+registering packages into our own index as they are fetched, is rejected because it
+makes `dists/` change on every fetch — unstable metadata, which contradicts the
+atomicity invariant the design rests on.
+
+**Scheduling — this is not gated on Phase 2.** A single mirror needs only a
+`key_prefix` that already exists today. It is uncoupled from the pool-layout work in
+[#25](https://github.com/rossigee/debian-repo/issues/25) because a mirror has one
+suite, no uploads, and no suite attribution to reconstruct. Per-*tenant* mirrors
+become a Phase 2 extension rather than a prerequisite.
+
+**The sharp edges**, in order of how easily they go wrong:
+
+- A mirror must **not** share a pool namespace with a publisher. A published
+  `foo_1.0.0_amd64.deb` and an upstream package with the same name, version and
+  architecture produce the *identical* key.
+- A mirror serves the **upstream** key at `/pubkey.gpg`, never ours. Telling clients
+  to verify Debian packages with our key would be wrong. The key is held locally
+  rather than fetched from the upstream at startup.
+- **Upstream 404s must never be cached**, or a package appearing in a later upstream
+  sync stays permanently missing.
+- Fetching needs **per-key single-flight**, or N clients installing a popular package
+  all fetch it simultaneously.
+- **Eviction is always safe** here, unlike a published object: the upstream is the
+  source of truth, so a re-fetch costs bandwidth and nothing else.
+
+**Open questions**, recorded in the ADR's *revisit when*: the cache is opportunistic
+and does not survive a sustained upstream outage; clients cannot filter or pin
+upstream content while metadata is relayed verbatim.
+
+---
+
 ## Contribution model
 
 - `master` is protected by a ruleset requiring a pull request, one approving review,
@@ -165,5 +218,6 @@ template enforces this.
 ## Decision records
 
 Design decisions with lasting consequences are recorded as ADRs in `docs/adr/`, using
-the Lightweight format. The tenancy model, the authorization model, the audit design
-and the Bootstrap/Sass build step all qualify.
+the Lightweight format. The tenancy model, the authorization model, repo visibility,
+the audit design, the Bootstrap/Sass build step, the release tag scheme and the
+pull-through cache all qualify.
