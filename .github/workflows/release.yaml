@@ -80,6 +80,7 @@ jobs:
             --build-arg DATE=${{ env.DATE }} \
             -t ghcr.io/rossigee/debian-repo:latest \
             -t ghcr.io/rossigee/debian-repo:${{ env.VERSION }} \
+            -t ghcr.io/rossigee/debian-repo:sha-${{ env.COMMIT }} \
             .
 
       - name: Run Trivy security scan
