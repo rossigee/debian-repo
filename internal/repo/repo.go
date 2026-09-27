@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 
 	"git.golder.lan/rossgolderltd/debian-repo/internal/config"
 	"git.golder.lan/rossgolderltd/debian-repo/internal/gpgsign"
@@ -41,7 +42,19 @@ type Repo struct {
 	FeedMaxItems int
 
 	RepoURL string
+
+	// hydrated reports whether the snapshot has been loaded and the metadata
+	// rendered. It is false from process start until hydration completes, so
+	// handlers can serve a retryable response instead of a half-rendered index
+	// while MinIO is slow or unreachable.
+	hydrated atomic.Bool
 }
+
+// MarkHydrated records that the repository's metadata is loaded and rendered.
+func (r *Repo) MarkHydrated() { r.hydrated.Store(true) }
+
+// Hydrated reports whether the repository is ready to serve apt metadata.
+func (r *Repo) Hydrated() bool { return r.hydrated.Load() }
 
 // BuildRepo constructs a Repo from a resolved config, given base clients and a default signer.
 // If the resolved config uses the default signer, defaultSigner is used; otherwise a new

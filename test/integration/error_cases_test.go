@@ -59,6 +59,9 @@ func TestErrorCases(t *testing.T) {
 		DefaultComponent: "main",
 		RepoURL:          "https://test.local",
 	}
+	// Hydration runs in the background after the listener starts, so a fixture
+	// representing a loaded repository has to say so explicitly.
+	testRepo.MarkHydrated()
 	registry, err := repo.NewRegistry([]*repo.Repo{testRepo})
 	if err != nil {
 		t.Fatalf("Failed to create registry: %v", err)
@@ -254,7 +257,8 @@ func TestErrorCases(t *testing.T) {
 	})
 
 	t.Run("ReadyzWithIndex", func(t *testing.T) {
-		// Readyz should return 200 if index has distributions
+		// Readyz reports the hydration flag, not index contents: a repo whose
+		// metadata has finished loading is ready even with no distributions.
 		req, _ := http.NewRequest("GET", ts.URL+"/readyz", nil)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
