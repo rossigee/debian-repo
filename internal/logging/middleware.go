@@ -72,6 +72,15 @@ func (rt *RequestTracer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			level = slog.LevelWarn
 		}
 
+		// Record the resolved CI token identity on the completion line. The
+		// auth middleware sets X-CI-Identity from the token it matched, so this
+		// is server-derived and cannot be spoofed by the caller. Without it a
+		// CI-authenticated request is indistinguishable from any other bearer
+		// caller in the logs.
+		if identity := r.Header.Get("X-CI-Identity"); identity != "" {
+			fields = append(fields, slog.String("identity", identity))
+		}
+
 		reqLogger.LogAttrs(context.Background(), level, "request completed", fields...)
 	}
 }
