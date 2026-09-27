@@ -8,7 +8,7 @@ immutable once accepted. Supersede rather than edit.
 | # | Decision | Status | Date |
 |---|---|---|---|
 | 0001 | Multi-tenant storage isolation: per-tenant MinIO endpoint and credentials | Accepted | 2026-09-27 |
-| 0002 | Authorization: Keycloak realm roles plus existing ACL grants | Accepted | 2026-09-27 |
+| 0002 | Identity-provider roles plus existing ACL grants | Accepted | 2026-09-27 |
 | 0003 | Per-repo public/private visibility | Accepted | 2026-09-27 |
 | 0004 | UI framework: Bootstrap 5.3.8, vendored, Sass at release time | Accepted | 2026-09-27 |
 | 0005 | Release workflows are the sole owner of version tags | Accepted | 2026-09-27 |

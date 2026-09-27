@@ -33,7 +33,7 @@ does not rebuild it:
 | Area | Decision |
 |---|---|
 | Tenant storage | Per-tenant MinIO endpoint and credentials (bring your own) |
-| Authorization | Keycloak realm roles for the coarse tier, existing `acl.Grant` for repo/suite/component |
+| Authorization | Identity-provider roles for the coarse tier, existing `acl.Grant` for repo/suite/component |
 | Repo visibility | Per-repo `public` / `private` |
 | UI framework | Bootstrap 5.3.8, vendored, compiled from Sass at release time |
 
@@ -62,8 +62,12 @@ and template link paths that ignore the repository prefix.
 One authorization model, two identity sources.
 
 - A `Principal` in request context, replacing the `X-CI-Identity` header
-- Keycloak realm roles carried into the session, which requires requesting the `roles`
+- Identity-provider roles carried into the session, which requires requesting the `roles`
   scope — today only `openid profile email` is requested, so roles never arrive
+- A **configurable** claim path for reading roles. OIDC standardises the token, not a
+  roles layout: some providers nest them under a namespaced object, some use a flat
+  array, some use group membership. The OIDC integration is already provider-agnostic
+  (`issuer_url` via `coreos/go-oidc` discovery) and must stay that way
 - A role dimension added to `acl.Request`
 - Per-repo `public` / `private`, wiring `aptauth.Middleware`, which is implemented but
   **never called** — the apt routes are currently unauthenticated while the OpenAPI
