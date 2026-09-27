@@ -80,7 +80,6 @@ jobs:
             --build-arg DATE=${{ env.DATE }} \
             -t ghcr.io/rossigee/debian-repo:latest \
             -t ghcr.io/rossigee/debian-repo:${{ env.VERSION }} \
-            -t ghcr.io/rossigee/debian-repo:sha-${{ env.COMMIT }} \
             .
 
       - name: Run Trivy security scan
@@ -102,9 +101,13 @@ jobs:
 
       - name: Push Docker images to registry
         run: |
+          # Version tags are the sole responsibility of this workflow. The
+          # sha-<commit> tag is published by build.yaml on every master push and
+          # must not be written here: pushing a tag this job never created fails
+          # with "tag does not exist", and re-tagging it here would have two
+          # workflows fighting over the same tag.
           docker push ghcr.io/rossigee/debian-repo:latest
           docker push ghcr.io/rossigee/debian-repo:${{ env.VERSION }}
-          docker push ghcr.io/rossigee/debian-repo:sha-${{ env.COMMIT }}
 
       - name: Create GitHub release
         run: |
