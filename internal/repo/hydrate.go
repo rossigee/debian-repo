@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
@@ -18,46 +19,114 @@ type SnapshotLoader interface {
 	GetLatestSnapshot(ctx context.Context) (*model.SnapshotV1, error)
 }
 
+// BucketEnsurer verifies a repository's bucket exists, creating it if needed.
+// *minio.Client satisfies it.
+type BucketEnsurer interface {
+	EnsureBucket(ctx context.Context) error
+}
+
+// HydrateDeps are the storage dependencies hydration needs. Both are interfaces
+// so tests can substitute stubs; the concrete MinIO types satisfy them as-is.
+type HydrateDeps struct {
+	Loader  SnapshotLoader
+	Ensurer BucketEnsurer
+}
+
 // HydrateAll loads and renders every repository concurrently, so one slow
-// repository does not delay the others. It is intended to run in the background
-// after the listener is up: until it finishes, repos report themselves
-// unhydrated and the metadata routes answer 503 with Retry-After.
+// repository does not delay the others, retrying any that fail until they are
+// hydrated or ctx is cancelled. It is intended to run in the background after the
+// listener is up: until it finishes, repos report themselves unhydrated and the
+// metadata routes answer 503 with Retry-After.
 func HydrateAll(ctx context.Context, repos []*Repo) {
-	var wg sync.WaitGroup
-	for _, rp := range repos {
-		wg.Add(1)
-		go func(rp *Repo) {
-			defer wg.Done()
-			// Convert the concrete store to the interface only when it is
-			// non-nil: passing a nil *minio.SnapshotStore directly would produce a
-			// non-nil interface holding a nil pointer, which defeats the nil check
-			// in loadSnapshot.
-			var loader SnapshotLoader
-			if rp.SnapshotStore != nil {
-				loader = rp.SnapshotStore
-			}
-			Hydrate(ctx, rp, loader)
-		}(rp)
+	HydrateAllWithInterval(ctx, repos, HydrationRetryInterval)
+}
+
+// HydrationRetryInterval is how long HydrateAll waits before retrying a
+// repository that could not be hydrated.
+const HydrationRetryInterval = 5 * time.Second
+
+// HydrateAllWithInterval retries failed repositories on the given interval. It
+// returns once every repository is hydrated or ctx is cancelled.
+func HydrateAllWithInterval(ctx context.Context, repos []*Repo, interval time.Duration) {
+	retryUntilHydrated(ctx, repos, interval, func(rp *Repo) error {
+		// Convert the concrete store to the interface only when it is non-nil:
+		// passing a nil *minio.SnapshotStore directly would produce a non-nil
+		// interface holding a nil pointer, which defeats the nil check in
+		// loadSnapshot.
+		var loader SnapshotLoader
+		if rp.SnapshotStore != nil {
+			loader = rp.SnapshotStore
+		}
+		var ensurer BucketEnsurer
+		if rp.MinioClient != nil {
+			ensurer = rp.MinioClient
+		}
+		return Hydrate(ctx, rp, HydrateDeps{Loader: loader, Ensurer: ensurer})
+	})
+}
+
+// retryUntilHydrated calls hydrate for each repository in pending, concurrently,
+// and repeats with whichever of them reported an error. It returns as soon as
+// every repository has succeeded, or when ctx is cancelled.
+//
+// Repositories are retried until they succeed rather than a fixed number of
+// times: a storage outage must not require a process restart to recover from.
+func retryUntilHydrated(ctx context.Context, pending []*Repo, interval time.Duration, hydrate func(*Repo) error) {
+	for len(pending) > 0 && ctx.Err() == nil {
+		var mu sync.Mutex
+		var failed []*Repo
+		var wg sync.WaitGroup
+
+		for _, rp := range pending {
+			wg.Add(1)
+			go func(rp *Repo) {
+				defer wg.Done()
+				if err := hydrate(rp); err != nil {
+					mu.Lock()
+					failed = append(failed, rp)
+					mu.Unlock()
+				}
+			}(rp)
+		}
+		wg.Wait()
+
+		pending = failed
+		if len(pending) == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
 	}
-	wg.Wait()
 }
 
 // Hydrate loads a repository's snapshot, installs it as the live index, and
 // renders Release/InRelease/Packages for every suite.
 //
-// A loader failure is not fatal: the repository starts from an empty index and is
-// still marked hydrated, matching the previous fail-open startup behaviour. The
-// repository is marked hydrated only after rendering is attempted, so a caller
-// never observes a half-rendered index as ready.
-func Hydrate(ctx context.Context, rp *Repo, loader SnapshotLoader) {
+// A missing snapshot is not an error: the repository starts from an empty index
+// and is marked hydrated, because a new repository legitimately has no snapshot
+// yet. Unreachable storage is different. If the bucket cannot be verified, the
+// repository is left unhydrated and an error is returned, so callers keep
+// answering 503 rather than advertising an empty repository as ready — to an apt
+// client that is indistinguishable from every package having been deleted.
+func Hydrate(ctx context.Context, rp *Repo, deps HydrateDeps) error {
 	started := time.Now()
 	slog.Info("hydrating repo", "repo_id", rp.ID)
 
-	loadSnapshot(ctx, rp, loader)
+	if deps.Ensurer != nil {
+		if err := deps.Ensurer.EnsureBucket(ctx); err != nil {
+			return fmt.Errorf("repo %s: ensuring bucket: %w", rp.ID, err)
+		}
+	}
+
+	loadSnapshot(ctx, rp, deps.Loader)
 	renderDistributions(ctx, rp)
 
 	rp.MarkHydrated()
 	slog.Info("repo hydrated", "repo_id", rp.ID, "suites", len(rp.IndexMgr.ListDistributions()), "took", time.Since(started).String())
+	return nil
 }
 
 // loadSnapshot installs the latest snapshot as the live index, falling back to an

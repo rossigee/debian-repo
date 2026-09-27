@@ -2,7 +2,6 @@
 package repo
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -60,11 +59,13 @@ func (r *Repo) Hydrated() bool { return r.hydrated.Load() }
 // If the resolved config uses the default signer, defaultSigner is used; otherwise a new
 // signer is constructed (and will fail fast if the key is invalid).
 func BuildRepo(rc config.ResolvedRepo, base *minio.Client, defaultSigner *gpgsign.Signer, publicScheme, defaultHost string) (*Repo, error) {
-	// Scope the MinIO client to this repo's bucket and prefix
+	// Scope the MinIO client to this repo's bucket and prefix.
+	//
+	// The bucket is not checked here. Doing so made startup depend on MinIO:
+	// if storage was slow or unreachable the process would refuse to start and
+	// the orchestrator would crash-loop it. The bucket is verified during
+	// background hydration instead, which retries until storage is reachable.
 	minioClient := base.WithBucketAndPrefix(rc.Bucket, rc.KeyPrefix)
-	if err := minioClient.EnsureBucket(context.Background()); err != nil {
-		return nil, err
-	}
 
 	// Select signer
 	var signer *gpgsign.Signer

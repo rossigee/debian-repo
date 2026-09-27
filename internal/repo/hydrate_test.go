@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"git.golder.lan/rossgolderltd/debian-repo/internal/gpgsign"
 	"git.golder.lan/rossgolderltd/debian-repo/internal/index"
@@ -93,7 +95,7 @@ func TestHydrateRendersMetadataFromSnapshot(t *testing.T) {
 	rp := newTestRepo(t, "default", testSigner(t))
 	loader := &stubLoader{snap: populatedSnapshot(t, "stable")}
 
-	Hydrate(context.Background(), rp, loader)
+	Hydrate(context.Background(), rp, HydrateDeps{Loader: loader})
 
 	if loader.calls != 1 {
 		t.Errorf("loader called %d times, want 1", loader.calls)
@@ -145,7 +147,7 @@ func TestHydrateProducesVerifiableSignatures(t *testing.T) {
 	signer := testSigner(t)
 	rp := newTestRepo(t, "default", signer)
 
-	Hydrate(context.Background(), rp, &stubLoader{snap: populatedSnapshot(t, "stable")})
+	Hydrate(context.Background(), rp, HydrateDeps{Loader: &stubLoader{snap: populatedSnapshot(t, "stable")}})
 
 	rendered := rp.IndexMgr.GetRenderedDist("stable")
 	if rendered == nil {
@@ -185,7 +187,7 @@ func TestHydrateProducesVerifiableSignatures(t *testing.T) {
 func TestHydrateEmptyIndexWhenNoSnapshot(t *testing.T) {
 	rp := newTestRepo(t, "default", nil)
 
-	Hydrate(context.Background(), rp, &stubLoader{snap: nil})
+	Hydrate(context.Background(), rp, HydrateDeps{Loader: &stubLoader{snap: nil}})
 
 	if !rp.Hydrated() {
 		t.Error("repo not marked hydrated")
@@ -204,7 +206,7 @@ func TestHydrateFailsOpenOnLoaderError(t *testing.T) {
 	rp := newTestRepo(t, "default", nil)
 	loader := &stubLoader{err: errors.New("minio unavailable")}
 
-	Hydrate(context.Background(), rp, loader)
+	Hydrate(context.Background(), rp, HydrateDeps{Loader: loader})
 
 	if loader.calls != 1 {
 		t.Errorf("loader called %d times, want 1", loader.calls)
@@ -220,7 +222,7 @@ func TestHydrateFailsOpenOnLoaderError(t *testing.T) {
 func TestHydrateWithNilLoader(t *testing.T) {
 	rp := newTestRepo(t, "default", nil)
 
-	Hydrate(context.Background(), rp, nil)
+	Hydrate(context.Background(), rp, HydrateDeps{})
 
 	if !rp.Hydrated() {
 		t.Error("repo not marked hydrated")
@@ -261,7 +263,7 @@ func TestHydrateSkipsRenderingOnCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	Hydrate(ctx, rp, &stubLoader{snap: populatedSnapshot(t, "stable")})
+	Hydrate(ctx, rp, HydrateDeps{Loader: &stubLoader{snap: populatedSnapshot(t, "stable")}})
 
 	if !rp.Hydrated() {
 		t.Error("repo not marked hydrated")
@@ -294,7 +296,7 @@ func TestHydrateRendersEverySuite(t *testing.T) {
 		}
 	}
 
-	Hydrate(context.Background(), rp, &stubLoader{snap: mgr.GetIndex().ToSnapshot("test")})
+	Hydrate(context.Background(), rp, HydrateDeps{Loader: &stubLoader{snap: mgr.GetIndex().ToSnapshot("test")}})
 
 	for _, suite := range []string{"stable", "testing", "unstable"} {
 		rendered := rp.IndexMgr.GetRenderedDist(suite)
@@ -309,5 +311,166 @@ func TestHydrateRendersEverySuite(t *testing.T) {
 			!strings.Contains(string(rendered.PackagesByArch["amd64"]), "test-pkg") {
 			t.Errorf("suite %s does not reference test-pkg", suite)
 		}
+	}
+}
+
+// stubEnsurer stands in for *minio.Client's bucket check.
+type stubEnsurer struct {
+	err   error
+	calls int
+}
+
+func (s *stubEnsurer) EnsureBucket(context.Context) error {
+	s.calls++
+	return s.err
+}
+
+// TestHydrateLeavesRepoUnhydratedWhenBucketUnreachable is the safety property
+// that keeps a storage outage from looking like an empty repository. Marking the
+// repo hydrated here would let /readyz report 200 and serve a Packages file with
+// no packages, which to an apt client is indistinguishable from every package
+// having been deleted.
+func TestHydrateLeavesRepoUnhydratedWhenBucketUnreachable(t *testing.T) {
+	rp := newTestRepo(t, "default", testSigner(t))
+	loader := &stubLoader{snap: populatedSnapshot(t, "stable")}
+	ensurer := &stubEnsurer{err: errors.New("dial tcp: connection refused")}
+
+	err := Hydrate(context.Background(), rp, HydrateDeps{Loader: loader, Ensurer: ensurer})
+
+	if err == nil {
+		t.Fatal("expected an error when the bucket cannot be ensured")
+	}
+	if !strings.Contains(err.Error(), "ensuring bucket") {
+		t.Errorf("error = %v, want it to mention ensuring bucket", err)
+	}
+	if rp.Hydrated() {
+		t.Error("repo marked hydrated despite unreachable storage")
+	}
+	if loader.calls != 0 {
+		t.Errorf("snapshot loader called %d times, want 0: storage was never verified", loader.calls)
+	}
+	if rp.IndexMgr.GetRenderedDist("stable") != nil {
+		t.Error("metadata was rendered despite unreachable storage")
+	}
+}
+
+func TestHydrateEnsuresBucketBeforeLoadingSnapshot(t *testing.T) {
+	rp := newTestRepo(t, "default", testSigner(t))
+	ensurer := &stubEnsurer{}
+
+	if err := Hydrate(context.Background(), rp, HydrateDeps{
+		Loader:  &stubLoader{snap: populatedSnapshot(t, "stable")},
+		Ensurer: ensurer,
+	}); err != nil {
+		t.Fatalf("Hydrate: %v", err)
+	}
+
+	if ensurer.calls != 1 {
+		t.Errorf("EnsureBucket called %d times, want 1", ensurer.calls)
+	}
+	if !rp.Hydrated() {
+		t.Error("repo not marked hydrated")
+	}
+	if rp.IndexMgr.GetRenderedDist("stable") == nil {
+		t.Error("no rendered dist after successful bucket check")
+	}
+}
+
+// TestHydrateMissingSnapshotIsNotAnError pins the distinction: an existing bucket
+// with no snapshot is a legitimately empty new repository, so it must still become
+// ready rather than staying 503 forever.
+func TestHydrateMissingSnapshotIsNotAnError(t *testing.T) {
+	rp := newTestRepo(t, "default", testSigner(t))
+
+	err := Hydrate(context.Background(), rp, HydrateDeps{
+		Loader:  &stubLoader{snap: nil},
+		Ensurer: &stubEnsurer{},
+	})
+
+	if err != nil {
+		t.Fatalf("missing snapshot should not be an error: %v", err)
+	}
+	if !rp.Hydrated() {
+		t.Error("repo not marked hydrated for an empty new repository")
+	}
+}
+
+func TestRetryUntilHydratedRetriesUntilSuccess(t *testing.T) {
+	rp := newTestRepo(t, "default", testSigner(t))
+
+	// Fail the first three attempts, then succeed. A repo that fails must be
+	// retried, and a repo that succeeds must not be, or the loop never returns.
+	var mu sync.Mutex
+	attempts := 0
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	retryUntilHydrated(ctx, []*Repo{rp}, time.Millisecond, func(*Repo) error {
+		mu.Lock()
+		defer mu.Unlock()
+		attempts++
+		if attempts <= 3 {
+			return errors.New("storage not ready")
+		}
+		return nil
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != 4 {
+		t.Errorf("hydrate called %d times, want 4 (3 failures then success)", attempts)
+	}
+}
+
+func TestRetryUntilHydratedStopsWhenContextCancelled(t *testing.T) {
+	rp := newTestRepo(t, "default", testSigner(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	calls := 0
+	done := make(chan struct{})
+	go func() {
+		retryUntilHydrated(ctx, []*Repo{rp}, time.Millisecond, func(*Repo) error {
+			calls++
+			return errors.New("never succeeds")
+		})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retryUntilHydrated did not return on a cancelled context")
+	}
+	if calls > 1 {
+		t.Errorf("hydrate called %d times on a pre-cancelled context, want at most 1", calls)
+	}
+	if rp.Hydrated() {
+		t.Error("repo marked hydrated by a failing hydrate")
+	}
+}
+
+// TestRetryUntilHydratedSucceedsImmediatelyWithNoPending asserts the loop
+// terminates when there is nothing to do, rather than spinning.
+func TestRetryUntilHydratedSucceedsImmediatelyWithNoPending(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	called := false
+	done := make(chan struct{})
+	go func() {
+		retryUntilHydrated(ctx, nil, time.Millisecond, func(*Repo) error {
+			called = true
+			return nil
+		})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retryUntilHydrated did not return with no pending repos")
+	}
+	if called {
+		t.Error("hydrate called with no pending repos")
 	}
 }
