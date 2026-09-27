@@ -1,203 +1,135 @@
-# Release Notes: v0.5.0
+# Release Notes: v0.5.1
 
-**Release Date**: 2026-09-26
-**Git Tag**: `v0.5.0`
-**Docker Image**: `ghcr.io/rossigee/debian-repo:v0.5.0`
+**Release Date**: 2026-09-27
+**Git Tag**: `v0.5.1`
+**Docker Image**: `ghcr.io/rossigee/debian-repo:v0.5.1`
 
 ## Summary
 
-v0.5.0 introduces **atomic pool file deletion** for the remove deb API. When packages are removed from the repository, their `.deb` files are now automatically deleted from MinIO pool storage, eliminating orphaned files and ensuring consistent state between the package index and pool contents.
+v0.5.1 fixes a bug that made `apt-get upgrade` reinstall **every package in this repository, at the identical version, on every run, forever**. The packages were reported as being upgraded, never as reinstalled, and apt offered no diagnostic of any kind. All four published packages were affected.
 
-## Security Updates
+The bug was not in apt. It was in the `Packages` metadata this service rendered.
 
-### Dependency Security Fixes
+## Bug Fixes
 
-This release updates critical dependencies to address multiple security vulnerabilities:
+### apt reinstalled every package on every upgrade
 
-**gRPC-Go: 1.67.1 → 1.84.0**
-- ✅ CVE-2026-33186 (CRITICAL): Authorization bypass via malformed `:path` header
-- ✅ CVE-2026-84445 (HIGH): DoS via missing `:authority` and `Host` headers
-- ✅ CVE-2026-84304 (HIGH): Heap memory exhaustion via HTTP/2 frame fragmentation
-- ✅ CVE-2026-84303 (MEDIUM): xDS RBAC HTTP filter bypass via header case sensitivity
-- ✅ GHSA-hrxh-6v49-42gf (HIGH): xDS RBAC authorization bypass & rapid reset bypass
+**Symptom**:
 
-**OpenTelemetry-Go: 1.31.0 → 1.46.0**
-- ✅ CVE-2026-81870 (LOW): Exporter config logging may leak endpoint URLs
-- ✅ CVE-2026-39883 (HIGH): BSD `kenv` command path hijacking vulnerability
-- ✅ CVE-2026-24051 (HIGH): macOS `ioreg` command path hijacking vulnerability
-
-All tests pass with race detector enabled.
-
-## Major Features
-
-### Atomic Pool File Deletion
-
-**Problem**: Previously, when removing packages via the remove API, only the index was updated and Release/Packages metadata was re-rendered. The actual `.deb` files in the MinIO pool remained, leading to:
-- Orphaned pool files consuming storage
-- Inconsistency between index and pool contents
-- Manual cleanup required via `repoctl reconcile --prune-orphans`
-
-**Solution**:
-1. **Before index mutation**: Collect all `.deb` file paths matching the removal criteria
-2. **Index mutation**: Remove package from index and re-render Release/Packages metadata
-3. **Async cleanup**: Delete collected pool files from MinIO storage (non-blocking)
-4. **Persist snapshot**: Updated repository state is saved
-
-**Behavior**:
-- **Request returns immediately** after index update (atomic pointer swap)
-- **Pool files deleted asynchronously** in background goroutine
-- **Error resilience**: Individual file deletion failures are logged but don't fail the operation
-- **Cascading cleanup**: Empty components/suites are automatically removed
-- **Flexible removal**: Supports removing specific version/architecture or all versions of a package
-
-**Implementation**:
-- `internal/apiserver/ci_handlers.go`: Enhanced `handleRemovePackage` function
-  - Lines 612-632: Collect pool paths before deletion
-  - Lines 646-666: Async pool file deletion and snapshot persistence
-- Pool path format: `pool/{component}/{package}_{version}_{architecture}.deb`
-- Uses existing MinIO client (`rp.MinioClient.RemoveObject`)
-- Background context prevents cancellation when request completes
-
-**Testing**:
-- `TestHandleRemovePackagePoolFileDeletion`: Verifies pool path collection for specific version/arch
-- `TestHandleRemovePackagePoolFileMultipleVersions`: Tests removal of multiple architectures
-- All existing tests pass with race detector
-- No breaking changes to public APIs
-
-### Documentation Updates
-
-- **API Reference** (`docs/content/api/_index.md`): Documented pool file deletion process
-- **User Guide** (`docs/content/user-guide/managing.md`): Three removal scenarios with examples
-- **Example Script** (`examples/api_remove.sh`): Updated with correct endpoint and improved error handling
-- **Architecture Guide** (`AGENTS.md`): Documented handleRemovePackage implementation details
-
-## API Changes
-
-### DELETE /api/v1/dists/{suite}/{component}/remove/{package}[/{version}[/{arch}]]
-
-**Behavior**:
-- Removes package from index
-- Re-renders Release/Packages metadata
-- **Deletes `.deb` file from pool storage** (async)
-- Persists updated snapshot
-
-**Examples**:
-```bash
-# Remove specific version/architecture (pool file deleted: pool/main/nginx_1.20.0_amd64.deb)
-curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-  https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx/1.20.0/amd64
-
-# Remove all architectures of a version
-curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-  https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx/1.20.0?force=true
-
-# Remove all versions (requires force flag + unprotect grant for protected suites)
-curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-  "https://debs.myorgname.com/api/v1/dists/stable/main/remove/nginx?force=true"
+```
+$ sudo apt-get dist-upgrade
+The following packages will be upgraded:
+  bucketsyncd fetch-k8s-cert python3-backups vault-tool
+4 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Need to get 0 B/14.8 MB of archives.
+...
+Unpacking bucketsyncd (0.4.4-1) over (0.4.4-1)
+Setting up bucketsyncd (0.4.4-1)
 ```
 
-**Response (200)**:
-```json
-{
-  "status": "removed",
-  "package": "nginx",
-  "suite": "stable"
+Running it again produced identical output. `Need to get 0 B` was the tell: the archives were already cached, so apt was re-unpacking 14.8 MB of byte-identical content and churning 20.9 MB on every invocation, indefinitely.
+
+**Root cause** — two independent defects in the rendered metadata, each sufficient on its own:
+
+1. **`Installed-Size` was never emitted.** The field whitelist in `RenderPackages` omitted it, so the served stanza carried no `Installed-Size` while dpkg had recorded one in `/var/lib/dpkg/status`.
+
+2. **Multi-line field values were written unindented.** `validate.parseControlFile` strips the fold whitespace from continuation lines, and `RenderPackages` wrote the value back verbatim, so `Description` continuation lines were emitted at column zero. Debian Policy 5.1 requires continuation lines to begin with a space or tab.
+
+**Mechanism** — apt hashes `Installed-Size`, `Depends`, `Pre-Depends`, `Conflicts`, `Breaks` and `Replaces` from both the `Packages` entry and the dpkg status entry (`debListParser::VersionHash`). When the two disagree, `pkgCacheGenerator::MergeListVersion` does not merge them, so the candidate stops being pointer-identical to the current version and `pkgDepCache::MarkInstall` marks it for install. The reinstall is deliberate on apt's part — it lets apt converge when a package has been locally rebuilt or repacked at an unchanged version. What made this pathological is that `VerIterator::CompareVer` infers ordering from position in the version list rather than comparing version strings, so the result was labelled an *upgrade* rather than a reinstall, and the diverging field was never named.
+
+**Evidence** — implementing apt's `VersionHash()` exactly and comparing the served stanzas against the real dpkg status:
+
+| package | served (before) | after | dpkg status |
+|---|---|---|---|
+| bucketsyncd | 5381 | 112655591 | 112655591 |
+| fetch-k8s-cert | 5381 | 266115125 | 266115125 |
+| python3-backups | 5381 | 3285827724 | 3285827724 |
+| vault-tool | 5381 | 194049126 | 194049126 |
+
+`5381` is apt's seed value, meaning apt found **none** of the six hashed fields in every served stanza. After the fix each hash matches dpkg exactly.
+
+The four packages failed for different reasons, which is worth recording for future regressions:
+
+- `fetch-k8s-cert` — pure `Description` case; its `.deb` carries no `Installed-Size` on either side
+- `vault-tool` — pure `Installed-Size` case; single-line `Description` and no `Depends` to swallow
+- `bucketsyncd`, `python3-backups` — both defects
+
+**Verification** — `apt-cache policy` shows the merge directly. Before, the identical version was pinned twice; after, it is a single pin with both sources:
+
+```
+before:  0.4.4-1 500 → Packages          after:  *** 0.4.4-1 500 → Packages
+         *** 0.4.4-1 100 → dpkg status                        100 → dpkg status
+```
+
+## Correctness Fixes
+
+### Missing control fields
+
+The same field whitelist dropped `Homepage`, `Multi-Arch`, `Provides` and `Enhances`, all of which belong in a binary `Packages` file. A missing `Provides` is the significant one: a package that provides a virtual package was unresolvable as a dependency from this repository. All are now rendered.
+
+### Continuation-line folding
+
+`RenderPackages` now folds multi-line field values through a single `writeField` helper, which is the exact inverse of the whitespace stripping `parseControlFile` performs. Because the correction is applied at render time rather than parse time, packages **already persisted in MinIO** are fixed on the next re-render without needing re-upload or a reconcile.
+
+## Security
+
+### Test GPG key no longer committed
+
+`test/fixtures/test-key.asc` contained two armored PGP private key blocks and had been in history since the initial commit, on a public repository with GitHub secret scanning and push protection both enabled. The key was throwaway, so nothing needed rotating, but a private key in public git is a standing alert and teaches every secret scanner to be ignored.
+
+Tests now generate a throwaway key per test via `internal/testsupport/gpgtest`. Ed25519 is used rather than the library default of RSA-2048, so generation is effectively free — the package's own tests run in 3 ms. The key is written under `t.TempDir()` with mode `0600`, never touching the working tree, and is removed when the test finishes.
+
+Two loopholes that had allowed the key in were closed at the same time:
+
+- `.gitignore` contained `!test/fixtures/*.asc`, a negation sitting two lines below the `*.asc` rule it defeated. Removed.
+- The pre-commit hook's key and credentials checks used `git diff --cached --name-only`, which **includes deletions**, so once a key was committed the hook made it impossible to ever remove. Both checks now use `--diff-filter=ACMR`. Verified in both directions: adding a key is still rejected with exit 1, and removing one is now allowed.
+
+### Latent test hole closed
+
+Five tests previously did:
+
+```go
+if _, err := os.Stat(testKeyPath); err != nil {
+    t.Skipf("Test GPG key not found at %s", testKeyPath)
 }
 ```
 
-**Protection Handling**:
-- Protected suites cannot be fully drained without `?force=true` and `unprotect` operation grant
-- Prevents accidental complete depletion of production suites
+A missing key silently **skipped** every test that signs a Release file. They now fail loudly, and all four end-to-end tests are confirmed running rather than skipping.
 
-## Migration Notes
+## Observability
 
-**No migrations required**. The feature:
-- Is fully backward compatible
-- Automatically handles packages added before v0.5.0
-- Uses existing MinIO client
-- Integrates seamlessly with existing removal flow
+### CI token identity recorded on request logs
 
-## Performance
+`RequestTracer` logged `remote_addr`, method, path, status and `auth_type`, where `auth_type` is only the first six characters of the `Authorization` header — always the literal string `Bearer` for CI callers. `user` was populated only for BasicAuth. A request made with a CI bearer token was therefore indistinguishable from any other bearer caller.
 
-- **Request latency**: Unaffected (async deletion happens after response)
-- **Index operations**: No overhead (pool paths collected in single pass before mutation)
-- **Pool cleanup**: Happens asynchronously, non-blocking to apt clients
-- **Snapshot persistence**: Async, doesn't block request
+This was not theoretical: a stuck client polling a reconcile job produced 2,287 identical `WARN` lines that could not be attributed to either configured token. The identity was already resolved and trustworthy — the auth middleware does `r.Header.Set("X-CI-Identity", identity)` from `constantTimeTokenLookup`, overwriting whatever the caller sent — so no trust boundary changed and no new plumbing was needed.
 
-## Deployment Instructions
+## Internal
 
-### Prerequisites
-- Docker and Docker Compose on vault.internal
-- MinIO access (already configured)
-- GPG signing key and passphrase
+### Image publishing was blocked
 
-### Step 1: Build and Push Docker Image
+`build.yaml` ran the Trivy installer with no `continue-on-error` and no timeout, under the runner's `bash -e`. The installer resolves the version and then exits 1, which fails the step, which fails the job before `Login to GitHub Container Registry` and `Push Docker image` run. Every run in this repository's history was red for that reason, including the initial commit, so the workflow had never published an image.
 
-```bash
-cd ~/go/src/github.com/rossigee/debian-repo
-git checkout v0.5.0
+Neither workflow declared a `permissions:` block, so `GITHUB_TOKEN` inherited the repository default, which is read-only — so the push was denied as soon as it was finally reached.
 
-# Build image locally
-docker build -t ghcr.io/rossigee/debian-repo:v0.5.0 .
+Both fixed:
 
-# Push to registry
-docker push ghcr.io/rossigee/debian-repo:v0.5.0
-```
+- `build.yaml`: `continue-on-error`, timeouts, and `contents: read` + `packages: write`
+- `release.yaml`: `contents: write` + `packages: write`, as its final step creates a GitHub release through the API
 
-### Step 2: Deploy to vault.internal
+Neither change is sufficient alone. With both, `build` is green and images publish.
 
-```bash
-ssh vault.internal
-
-# Pull the new image
-docker pull ghcr.io/rossigee/debian-repo:v0.5.0
-
-# Restart the container (snapshot will be reused if compatible)
-cd /opt/docker-compose/debian-repo
-docker-compose restart debian-repo
-
-# Wait for startup (~5 seconds)
-sleep 5
-
-# Verify it started
-docker-compose ps
-docker-compose logs debian-repo | tail -20
-```
-
-### Step 3: Verify Pool File Deletion
-
-Test the removal endpoint to verify pool files are being deleted:
-
-```bash
-# Remove a non-production package
-curl -X DELETE \
-  -H "Authorization: Bearer $REPO_ADMIN_TOKEN" \
-  https://debs.myorgname.com/api/v1/dists/testing/main/remove/test-package/1.0.0/amd64
-
-# Check MinIO to verify pool file was deleted
-mc ls minio/debs-myorgname/pool/main/ | grep test-package
-# Should show no results (file was deleted)
-```
-
-## Breaking Changes
-
-None. This is a purely additive feature.
-
-## Known Issues
-
-None.
+Publish steps are now gated on `if: github.event_name != 'pull_request'`, because this workflow also runs for pull requests and an unconditional push let a pull request overwrite `:latest` — the tag the deployed service tracks.
 
 ## Testing
 
-All tests pass with race detector:
-```bash
-go test -race ./...
+```
+go build ./...                OK
+go vet ./...                  OK
+go test -race ./...           all packages pass
+golangci-lint run             0 issues
+gofmt -l internal/ cmd/ test/ clean
+.githooks/pre-commit          all 8 checks pass
 ```
 
-## Previous Release
-
-See [v0.4.0 Release Notes](#) for checksum sidecar caching feature.
-
----
-
-**For questions or issues**: Contact the infrastructure team or file an issue at https://github.com/rossigee/debian-repo
+New tests: `internal/aptmeta` covers the rendered `Packages` against a parser that reproduces apt's cross-line colon search, asserting that every field apt hashes round-trips and that fold lines are indented. `internal/logging` had no tests and now covers CI identity recording. `internal/testsupport/gpgtest` covers key generation, permissions, uniqueness, and a real sign round-trip.
