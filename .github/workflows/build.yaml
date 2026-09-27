@@ -70,7 +70,7 @@ jobs:
             --build-arg COMMIT=${{ env.COMMIT }} \
             --build-arg DATE=${{ env.DATE }} \
             -t ghcr.io/rossigee/debian-repo:latest \
-            -t ghcr.io/rossigee/debian-repo:${{ env.VERSION }} \
+            -t ghcr.io/rossigee/debian-repo:sha-${{ env.COMMIT }} \
             .
 
       - name: Run Trivy security scan
@@ -84,10 +84,16 @@ jobs:
             --no-progress \
             . || echo "Trivy scan completed or timed out"
 
-      # Publish on master pushes and on tags, but never from a pull request:
-      # this workflow also runs for pull_request, and an unconditional push lets
-      # any branch overwrite :latest, which is the tag the deployed service
-      # tracks. Guarding on the event keeps master pushes publishing as before.
+      # Publish on master pushes, but never from a pull request: this workflow
+      # also runs for pull_request, and an unconditional push lets any branch
+      # overwrite :latest, which is the tag the deployed service tracks.
+      #
+      # Version tags are deliberately NOT pushed here. This workflow used to push
+      # :${{ env.VERSION }} from the VERSION file, which collided with the
+      # :v${{ env.VERSION }} that release.yaml derives from the git tag: the two
+      # differed only by the "v" prefix, and a master push would overwrite the
+      # release's version tag with an unrelated build. Releases are now the sole
+      # owner of version tags. Master builds are traceable by commit instead.
       - name: Login to GitHub Container Registry
         if: github.event_name != 'pull_request'
         run: |
@@ -99,5 +105,5 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           docker push ghcr.io/rossigee/debian-repo:latest
-          docker push ghcr.io/rossigee/debian-repo:${{ env.VERSION }}
+          docker push ghcr.io/rossigee/debian-repo:sha-${{ env.COMMIT }}
 

@@ -26,6 +26,14 @@ jobs:
           COMMIT=$(git rev-parse --short HEAD)
           DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
+          # Version tags are always v-prefixed, so a tag created without the
+          # "v" still produces a correctly named image rather than a stray
+          # un-prefixed tag.
+          case "$VERSION" in
+            v*) ;;
+            *) VERSION="v$VERSION" ;;
+          esac
+
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "COMMIT=$COMMIT" >> $GITHUB_ENV
           echo "DATE=$DATE" >> $GITHUB_ENV
@@ -34,6 +42,8 @@ jobs:
         run: |
           if [ "${{ env.VERSION }}" != "v$(cat VERSION)" ]; then
             echo "❌ Tag version does not match VERSION file"
+            echo "   tag:    ${{ env.VERSION }}"
+            echo "   VERSION: v$(cat VERSION)"
             exit 1
           fi
 
@@ -93,6 +103,7 @@ jobs:
         run: |
           docker push ghcr.io/rossigee/debian-repo:latest
           docker push ghcr.io/rossigee/debian-repo:${{ env.VERSION }}
+          docker push ghcr.io/rossigee/debian-repo:sha-${{ env.COMMIT }}
 
       - name: Create GitHub release
         run: |
