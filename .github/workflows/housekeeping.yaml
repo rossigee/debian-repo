@@ -1,64 +1,29 @@
 name: Housekeeping
 
-# Keeps the board trustworthy as the team grows:
-#   - daily stale sweep, so a blocked PR or forgotten issue surfaces instead of rotting
-#   - weekly digest, so progress reporting does not depend on someone asking
+# A single weekly digest into the run summary, so progress reporting does not
+# depend on someone asking.
 #
-# Both are non-destructive. The stale sweep only comments; it never closes or
-# reopens anything, because auto-closing a PR someone is still working on is worse
-# than a stale one.
+# Deliberately passive: nothing here comments on, closes, reopens or labels any
+# issue or pull request. Stale work is reported in the digest instead of nagging
+# its author. If you want a stale item chased, the Project's Blocked view is the
+# place to look, not an automated comment on someone's pull request.
 
 on:
   schedule:
-    - cron: "17 7 * * *"   # daily 07:17 UTC
-    - cron: "23 8 * * 1"   # Mondays 08:23 UTC, for the digest
+    - cron: "23 8 * * 1"   # Mondays 08:23 UTC
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
+  issues: read
+  pull-requests: read
 
 jobs:
-  stale:
-    name: stale sweep
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Comment on stale issues and PRs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          STALE_ISO=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
-
-          for n in $(gh api "$REPO/issues?state=open&per_page=100" \
-                      --jq '.[] | select(.pull_request == null and .comments < 2) | .number'); do
-            updated=$(gh api "$REPO/issues/$n" --jq .updated_at)
-            if [[ "$updated" < "$STALE_ISO" ]]; then
-              echo "::notice::#$n stale since $updated"
-              gh issue comment "$n" --body \
-                "This issue has had no activity for 14 days. If it is still wanted, add a note; otherwise it can be closed. No action is taken automatically." \
-                || true
-            fi
-          done
-
-          for n in $(gh api "$REPO/pulls?state=open&per_page=100" --jq '.[].number'); do
-            updated=$(gh api "$REPO/pulls/$n" --jq .updated_at)
-            if [[ "$updated" < "$STALE_ISO" ]]; then
-              echo "::notice::PR #$n stale since $updated"
-              gh pr comment "$n" --body \
-                "No activity for 14 days. If this is still in progress, a short note helps reviewers; otherwise it can be closed. No action is taken automatically." \
-                || true
-            fi
-          done
-
   digest:
     name: weekly digest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - name: Summarise milestones, open work and blocked items
+      - name: Summarise milestones, open work, stale items and recent merges
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -78,21 +43,41 @@ jobs:
 
             echo "### Open work by label"
             echo
-            for l in "type:bug" "type:security" "risk:data-loss" "risk:breaking"; do
-              c=$(gh api "$REPO/issues?state=open&labels=$l&per_page=100" --jq 'length')
-              [[ "$c" != "0" ]] && echo "- $l: $c"
+            found=0
+            for l in "type:bug" "type:security" "risk:data-loss" "risk:breaking" "risk:migration"; do
+              c=$(gh api "$REPO/issues?state=open&labels=$l&per_page=100" --jq 'length' 2>/dev/null || echo 0)
+              if [ "$c" != "0" ]; then echo "- $l: $c"; found=1; fi
             done
+            [ "$found" = "0" ] && echo "_nothing open_"
             echo
 
-            echo "### Pull requests"
+            echo "### Open pull requests"
             echo
             gh api "$REPO/pulls?state=open&per_page=100" --jq '.[] |
-              "- #\(.number) \(.title[0:70]) — \(.user.login), updated \(.updated_at[0:10])"' \
-              2>/dev/null || echo "_none_"
+              "- #\(.number) \(.title[0:70]) — \(.user.login), updated \(.updated_at[0:10])"' 2>/dev/null \
+              || echo "_none_"
+            echo
+
+            echo "### Quiet for 14 days"
+            echo
+            echo "_Reported, not actioned. Chase via the Project Blocked view._"
+            echo
+            CUTOFF=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+            found=0
+            for n in $(gh api "$REPO/issues?state=open&per_page=100" --jq '.[].number'); do
+              read -r updated ispr < <(gh api "$REPO/issues/$n" --jq '"\(.updated_at) \(.pull_request != null)"')
+              if [[ "$updated" < "$CUTOFF" ]]; then
+                kind=$([ "$ispr" = "true" ] && echo "PR" || echo "issue")
+                echo "- #$n ($kind) — last activity ${updated:0:10}"
+                found=1
+              fi
+            done
+            [ "$found" = "0" ] && echo "_nothing_"
             echo
 
             echo "### Recent merges"
             echo
             gh api "$REPO/commits?per_page=15" --jq '.[0:10][] |
-              "- \(.sha[0:7]) \(.commit.message | split("\n")[0] | .[0:70])"' 2>/dev/null || echo "_none_"
+              "- \(.sha[0:7]) \(.commit.message | split("\n")[0] | .[0:70])"' 2>/dev/null \
+              || echo "_none_"
           } >> "$GITHUB_STEP_SUMMARY"
