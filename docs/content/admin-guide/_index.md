@@ -9,11 +9,11 @@ Operational and administrative guidance for running and managing debian-repo in 
 ## Table of Contents
 
 1. **[Installation Guide](installation.md)** — System requirements, build, deployment (Docker, Kubernetes, SystemD)
-2. **[Configuration Reference](configuration.md)** — All configuration options explained (TBD)
-3. **[Operations Guide](operations.md)** — Running, monitoring, troubleshooting (TBD)
+2. **[Configuration Reference](configuration.md)** — All configuration options explained
+3. **[Operations Guide](operations.md)** — Running, monitoring, troubleshooting
 4. **[Multi-Repo Setup](multi-repo.md)** — Configuring multiple independent repositories
 5. **[Tracing Setup](tracing.md)** — OpenTelemetry OTLP tracing and observability
-6. **[Maintenance & Backup](maintenance.md)** — Snapshots, reconciliation, recovery (TBD)
+6. **[Maintenance & Backup](maintenance.md)** — Snapshots, reconciliation, recovery
 
 ## Quick Reference
 

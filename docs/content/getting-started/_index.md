@@ -106,7 +106,7 @@ export REPO_URL="https://debs.myorgname.com"
 curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
   --data-binary @my-package_1.0.0_amd64.deb \
-  "$REPO_URL/api/v1/dists/stable/main/upload"
+  "$REPO_URL/api/v1/upload?suite=stable&component=main"
 ```
 
 Response:

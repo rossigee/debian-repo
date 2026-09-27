@@ -22,7 +22,7 @@ Practical guide for uploading packages, managing repositories, and working with 
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   --data-binary @package.deb \
-  "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+  "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
 ```
 → See **[Uploading Packages](uploading.md)**
 
@@ -73,11 +73,11 @@ Upload the same package for multiple architectures:
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   --data-binary @package_1.0.0_amd64.deb \
-  "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+  "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
 
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   --data-binary @package_1.0.0_arm64.deb \
-  "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+  "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
 ```
 
 Clients will get the architecture-specific package automatically.
@@ -101,7 +101,7 @@ Your admin provides a bearer token. Use in `Authorization` header:
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   --data-binary @package.deb \
-  "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+  "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
 ```
 
 Never commit tokens to Git. Use CI secrets (GitHub Secrets, Gitea Variables, etc.).

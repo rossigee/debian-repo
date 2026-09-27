@@ -111,7 +111,7 @@ for deb in package_*.deb; do
   curl -X POST \
     -H "Authorization: Bearer $TOKEN" \
     --data-binary @"$deb" \
-    "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+    "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
 done
 ```
 
@@ -132,7 +132,7 @@ for deb in package_*.deb; do
   curl -X POST \
     -H "Authorization: Bearer $TOKEN" \
     --data-binary @"$deb" \
-    "https://debs.myorgname.com/api/v1/dists/$SUITE/$COMPONENT/upload" \
+    "https://debs.myorgname.com/api/v1/upload?suite=$SUITE&component=$COMPONENT" \
     || exit 1
 done
 
@@ -331,7 +331,7 @@ sudo apt install my-package
   ls package_*.deb | parallel -j 4 'curl -X POST \
     -H "Authorization: Bearer $TOKEN" \
     --data-binary @{} \
-    "https://debs.myorgname.com/api/v1/dists/stable/main/upload"'
+    "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"'
   ```
 
 **For production pipelines:**

@@ -135,7 +135,7 @@ curl -X POST \
       "version": "1.20.0",
       "architecture": "amd64",
       "component": "main",
-      "filename": "pool/main/n/nginx/nginx_1.20.0_amd64.deb"
+      "filename": "pool/main/nginx_1.20.0_amd64.deb"
     }
   ]
 }

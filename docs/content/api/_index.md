@@ -387,7 +387,7 @@ API_URL = "https://debs.myorgname.com/api/v1"
 # Upload a package
 with open("nginx_1.20.0_amd64.deb", "rb") as f:
     resp = requests.post(
-        f"{API_URL}/dists/stable/main/upload",
+        f"{API_URL}/upload?suite=stable&component=main",
         data=f,
         headers={"Authorization": f"Bearer {TOKEN}"}
     )
@@ -416,7 +416,7 @@ API="https://debs.myorgname.com/api/v1"
 # Upload
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   --data-binary @nginx_1.20.0_amd64.deb \
-  "$API/dists/stable/main/upload"
+  "$API/upload?suite=stable&component=main"
 
 # Remove
 curl -X DELETE -H "Authorization: Bearer $TOKEN" \
@@ -438,7 +438,7 @@ import (
 func uploadPackage(token, filepath string) error {
 	data, _ := ioutil.ReadFile(filepath)
 	req, _ := http.NewRequest("POST",
-		"https://debs.myorgname.com/api/v1/dists/stable/main/upload",
+		"https://debs.myorgname.com/api/v1/upload?suite=stable&component=main",
 		bytes.NewReader(data))
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
