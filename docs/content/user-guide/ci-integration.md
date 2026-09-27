@@ -49,7 +49,7 @@ jobs:
           curl -X POST \
             -H "Authorization: Bearer ${{ secrets.DEBIAN_REPO_TOKEN }}" \
             --data-binary "@$DEB_FILE" \
-            "https://debs.myorgname.com/api/v1/dists/stable/main/upload" \
+            "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main" \
             -v
 ```
 
@@ -87,7 +87,7 @@ jobs:
           curl -X POST \
             -H "Authorization: Bearer $DEBIAN_REPO_TOKEN" \
             --data-binary "@$DEB_FILE" \
-            "$DEBIAN_REPO_URL/api/v1/dists/stable/main/upload"
+            "$DEBIAN_REPO_URL/api/v1/upload?suite=stable&component=main"
 ```
 
 ## Jenkins Pipeline Example
@@ -123,7 +123,7 @@ pipeline {
                     curl -X POST \
                         -H "Authorization: Bearer $DEBIAN_REPO_TOKEN" \
                         --data-binary "@$DEB_FILE" \
-                        "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+                        "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
                 '''
             }
         }
@@ -148,7 +148,7 @@ build_and_push:
       curl -X POST \
         -H "Authorization: Bearer $DEBIAN_REPO_TOKEN" \
         --data-binary "@$DEB_FILE" \
-        "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+        "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
   only:
     - tags
 ```
@@ -160,7 +160,7 @@ build_and_push:
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   --data-binary @package.deb \
-  "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+  "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
 ```
 
 ### Approach 2: Testing → Stable (for validated releases)
@@ -201,7 +201,7 @@ for attempt in {1..3}; do
   curl -X POST \
     -H "Authorization: Bearer $TOKEN" \
     --data-binary @package.deb \
-    "https://debs.myorgname.com/api/v1/dists/stable/main/upload" \
+    "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main" \
     && echo "✓ Upload successful" && break
 
   if [ $attempt -lt 3 ]; then
@@ -253,7 +253,7 @@ for arch in amd64 arm64; do
   curl -X POST \
     -H "Authorization: Bearer $TOKEN" \
     --data-binary "@$DEB_FILE" \
-    "https://debs.myorgname.com/api/v1/dists/stable/main/upload"
+    "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main"
 done
 ```
 
@@ -324,7 +324,7 @@ Enable verbose output:
 curl -v -X POST \
   -H "Authorization: Bearer $TOKEN" \
   --data-binary @package.deb \
-  "https://debs.myorgname.com/api/v1/dists/stable/main/upload" \
+  "https://debs.myorgname.com/api/v1/upload?suite=stable&component=main" \
   2>&1 | tee upload.log
 ```
 

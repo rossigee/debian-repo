@@ -8,7 +8,22 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Runs on GitHub-hosted runners deliberately.
+    #
+    # This job runs for pull_request, which means it executes contributor-supplied
+    # code. On a self-hosted runner that is arbitrary code execution on our own
+    # hardware, with that runner's network access and persistent workspace. Public
+    # repositories get unlimited free standard Linux runners, so isolation here is
+    # free — take it.
+    #
+    # The intended split, once self-hosted runners are registered under the label
+    # `trusted`:
+    #   pull_request      -> ubuntu-26.04                        (untrusted)
+    #   push to master    -> [self-hosted, linux, x64, trusted]   (trusted)
+    #   release.yaml tags -> [self-hosted, linux, x64, trusted]   (trusted)
+    # Do not move the master push onto a self-hosted label until a runner matching
+    # it is actually registered, or the job will queue forever with no failure.
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write

@@ -292,7 +292,7 @@ curl -X DELETE \
 # Upload to main repo
 curl -X POST -H "Authorization: Bearer $MAIN_TOKEN" \
   --data-binary @pkg_1.0.0_amd64.deb \
-  https://debs.myorgname.com/api/v1/dists/stable/main/upload
+  https://debs.myorgname.com/api/v1/upload?suite=stable&component=main
 
 # Upload to testing repo (different path)
 curl -X POST -H "Authorization: Bearer $TEST_TOKEN" \

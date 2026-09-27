@@ -113,7 +113,7 @@ Example trace attributes available for querying:
 ```
 service.name = "debian-repo"
 http.method = "POST"
-http.target = "/api/v1/dists/stable/main/upload"
+http.target = "/api/v1/upload?suite=stable&component=main"
 http.status_code = 200
 duration_ms >= 100
 error = false

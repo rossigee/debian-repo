@@ -1,0 +1,52 @@
+# Code owners
+#
+# This repository is owned by a personal account, not an organisation, so there are
+# no teams. Ownership is by individual handle, and the `require_code_owner_review`
+# rule in the "master" ruleset routes reviews here.
+#
+# The repo-owner line at the bottom catches everything not claimed above. Replace
+# the @TEAM-* placeholders as engineers are onboarded; an unclaimed path still
+# falls through to @rossigee, so nothing is unreviewed in the meantime.
+
+# Default owner for everything not claimed below.
+*                               @rossigee
+
+# --- Authentication and authorization ---------------------------------------
+# The three-tier auth model lives here: HTTP Basic for apt clients, OIDC for the
+# web UI, bearer tokens for CI. Phase 1 of the v1.0 roadmap rewrites all three.
+internal/acl/                   @rossigee
+internal/aptauth/               @rossigee
+internal/webauth/               @rossigee
+internal/config/                @rossigee
+internal/apiserver/router.go    @rossigee
+internal/apiserver/acl.go       @rossigee
+
+# --- Storage, key layout and snapshots ---------------------------------------
+# Phase 2 moves to per-tenant MinIO endpoints and credentials. Pool key layout
+# and snapshot format changes are data-loss capable, so these get a second reader.
+/internal/repo/                 @rossigee
+/internal/storage/              @rossigee
+internal/model/                 @rossigee
+
+# --- Rendering and metadata --------------------------------------------------
+# Served Packages/Release content. Getting this wrong silently breaks apt clients.
+internal/aptmeta/               @rossigee
+internal/index/                 @rossigee
+internal/reconcile/             @rossigee
+
+# --- UI, templates and CSS ---------------------------------------------------
+# Phase 4 replaces all of this with Bootstrap. Also owns accessibility.
+internal/templates/             @rossigee
+internal/htmlpages/             @rossigee
+
+# --- CI, releases and the image pipeline ------------------------------------
+# Release workflow owns version tags; build.yaml must never write them.
+/.github/workflows/             @rossigee
+Dockerfile                      @rossigee
+Makefile                        @rossigee
+
+# --- Documentation -----------------------------------------------------------
+docs/                           @rossigee
+ROADMAP.md                      @rossigee
+SECURITY.md                     @rossigee
+AGENTS.md                       @rossigee

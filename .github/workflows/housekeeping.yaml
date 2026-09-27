@@ -1,0 +1,83 @@
+name: Housekeeping
+
+# A single weekly digest into the run summary, so progress reporting does not
+# depend on someone asking.
+#
+# Deliberately passive: nothing here comments on, closes, reopens or labels any
+# issue or pull request. Stale work is reported in the digest instead of nagging
+# its author. If you want a stale item chased, the Project's Blocked view is the
+# place to look, not an automated comment on someone's pull request.
+
+on:
+  schedule:
+    - cron: "23 8 * * 1"   # Mondays 08:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  digest:
+    name: weekly digest
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Summarise milestones, open work, stale items and recent merges
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "## Weekly digest"
+            echo
+            echo "_$(date -u +%Y-%m-%d)_"
+            echo
+
+            echo "### Milestones"
+            echo
+            gh api "$REPO/milestones?state=open" --jq '.[] |
+              "- **\(.title)** — \(.open_issues) open, \(.closed_issues) closed"' 2>/dev/null \
+              || echo "_none_"
+            echo
+
+            echo "### Open work by label"
+            echo
+            found=0
+            for l in "type:bug" "type:security" "risk:data-loss" "risk:breaking" "risk:migration"; do
+              c=$(gh api "$REPO/issues?state=open&labels=$l&per_page=100" --jq 'length' 2>/dev/null || echo 0)
+              if [ "$c" != "0" ]; then echo "- $l: $c"; found=1; fi
+            done
+            [ "$found" = "0" ] && echo "_nothing open_"
+            echo
+
+            echo "### Open pull requests"
+            echo
+            gh api "$REPO/pulls?state=open&per_page=100" --jq '.[] |
+              "- #\(.number) \(.title[0:70]) — \(.user.login), updated \(.updated_at[0:10])"' 2>/dev/null \
+              || echo "_none_"
+            echo
+
+            echo "### Quiet for 14 days"
+            echo
+            echo "_Reported, not actioned. Chase via the Project Blocked view._"
+            echo
+            CUTOFF=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+            found=0
+            for n in $(gh api "$REPO/issues?state=open&per_page=100" --jq '.[].number'); do
+              read -r updated ispr < <(gh api "$REPO/issues/$n" --jq '"\(.updated_at) \(.pull_request != null)"')
+              if [[ "$updated" < "$CUTOFF" ]]; then
+                kind=$([ "$ispr" = "true" ] && echo "PR" || echo "issue")
+                echo "- #$n ($kind) — last activity ${updated:0:10}"
+                found=1
+              fi
+            done
+            [ "$found" = "0" ] && echo "_nothing_"
+            echo
+
+            echo "### Recent merges"
+            echo
+            gh api "$REPO/commits?per_page=15" --jq '.[0:10][] |
+              "- \(.sha[0:7]) \(.commit.message | split("\n")[0] | .[0:70])"' 2>/dev/null \
+              || echo "_none_"
+          } >> "$GITHUB_STEP_SUMMARY"

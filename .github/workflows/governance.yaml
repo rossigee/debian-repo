@@ -1,0 +1,63 @@
+name: Governance
+
+# Two things that keep the issue graph honest as the team grows:
+#   1. every PR must reference an issue, so "why does this code exist" stays answerable
+#   2. area labels are applied from changed paths, so they are never a manual chore
+#
+# Neither step checks out or executes pull request code. That is why the labellng
+# job can use pull_request_target and still have write access to labels: it reads
+# only the event payload. Do not add a checkout or any run of repository code to
+# the labellng job — that would make it an arbitrary-code-execution vector.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  linked-issue:
+    name: linked-issue
+    # pull_request, not pull_request_target: this needs no write access at all.
+    runs-on: ubuntu-26.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Require a linked issue
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if ! printf '%s' "$PR_BODY" | grep -qE 'Refs:[[:space:]]*#[0-9]+'; then
+            echo "::error::This pull request must reference an issue. Add a line like 'Refs: #123' to the description. The check is enforced by .github/workflows/governance.yaml."
+            exit 1
+          fi
+
+  area-labels:
+    name: area-labels
+    runs-on: ubuntu-26.04
+    if: github.event_name == 'pull_request_target'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Derive and apply area labels from changed paths
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          FILES: ${{ join(github.event.pull_request.changed_files.*.filename, ' ') }}
+        run: |
+          # Ordered: first match wins, so list the most specific areas first.
+          apply() {
+            grep -qE "$1" <<<"$FILES" && gh pr edit "$PR" --add-label "$2" 2>/dev/null || true
+          }
+          apply '\.github/workflows/|^\.github/CODEOWNERS|^Dockerfile|^Makefile$' 'area:ci'
+          apply '^internal/templates/|^internal/htmlpages/'                          'area:ui'
+          apply '^internal/acl/|^internal/aptauth/|^internal/webauth/|^internal/config/' 'area:authz'
+          apply '^internal/storage/|^internal/repo/'                                 'area:storage'
+          apply '^internal/index/|^internal/model/|^internal/aptmeta/|^internal/reconcile/' 'area:index'
+          apply '^internal/apiserver/'                                               'area:api'
+          apply '^docs/|^AGENTS\.md|^RELEASE_NOTES\.md|^SECURITY\.md'               'area:docs'
+          echo "Applied area labels for $PR from:"; tr ' ' '\n' <<<"$FILES" | sed 's/^/    /'
