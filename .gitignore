@@ -42,7 +42,9 @@ secrets/
 *.asc
 *.gpg
 *.key
-!test/fixtures/*.asc
+# No exception for test fixtures. Tests that need a key generate a throwaway
+# one at runtime into a temp dir; see internal/testsupport/gpgtest. The previous
+# "!test/fixtures/*.asc" negation is what allowed a committed private key.
 
 # Credentials and tokens (CRITICAL: NEVER commit)
 credentials.json
