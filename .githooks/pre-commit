@@ -10,11 +10,15 @@ cd "$REPO_ROOT"
 echo "🔍 Running pre-commit checks..."
 
 # Check 1: Prevent secrets from being committed
+# --diff-filter=ACMR excludes deletions, so removing a key that was committed by
+# mistake is allowed. Without it this hook blocks the very remediation it exists
+# to enforce.
 echo "  ✓ Checking for secrets..."
-if git diff --cached --name-only | grep -E '\.(asc|gpg|key|pem)$'; then
+staged_keys=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(asc|gpg|key|pem)$' || true)
+if [ -n "$staged_keys" ]; then
     echo "❌ ERROR: Attempting to commit cryptographic keys!"
     echo "   These files should never be committed:"
-    git diff --cached --name-only | grep -E '\.(asc|gpg|key|pem)$'
+    echo "$staged_keys"
     exit 1
 fi
 
@@ -26,8 +30,10 @@ fi
 
 # Check 2: Prevent credentials files
 echo "  ✓ Checking for credentials files..."
-if git diff --cached --name-only | grep -E '(credentials|secrets|\.env)'; then
+staged_creds=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '(credentials|secrets|\.env)' || true)
+if [ -n "$staged_creds" ]; then
     echo "❌ ERROR: Attempting to commit credentials files!"
+    echo "$staged_creds"
     exit 1
 fi
 

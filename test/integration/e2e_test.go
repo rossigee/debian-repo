@@ -9,9 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -22,14 +19,9 @@ import (
 	"git.golder.lan/rossgolderltd/debian-repo/internal/index"
 	"git.golder.lan/rossgolderltd/debian-repo/internal/model"
 	"git.golder.lan/rossgolderltd/debian-repo/internal/repo"
+	"git.golder.lan/rossgolderltd/debian-repo/internal/testsupport/gpgtest"
 	"git.golder.lan/rossgolderltd/debian-repo/internal/validate"
 )
-
-// getTestKeyPath returns the path to the test GPG key
-func getTestKeyPath() string {
-	_, filename, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(filename), "..", "fixtures", "test-key.asc")
-}
 
 // TestDebValidation tests that generated .deb files can be validated
 func TestDebValidation(t *testing.T) {
@@ -58,11 +50,7 @@ func TestDebValidation(t *testing.T) {
 
 // TestEndToEndUploadAndFetch tests the complete flow: upload → metadata serving
 func TestEndToEndUploadAndFetch(t *testing.T) {
-	// Load test GPG key
-	testKeyPath := getTestKeyPath()
-	if _, err := os.Stat(testKeyPath); err != nil {
-		t.Skipf("Test GPG key not found at %s", testKeyPath)
-	}
+	testKeyPath := gpgtest.KeyPath(t)
 
 	signer, err := gpgsign.NewSigner(testKeyPath, "", false)
 	if err != nil {
@@ -383,10 +371,7 @@ func TestEndToEndUploadAndFetch(t *testing.T) {
 
 // TestMultiplePackageVersions tests registering multiple versions and architectures
 func TestMultiplePackageVersions(t *testing.T) {
-	testKeyPath := getTestKeyPath()
-	if _, err := os.Stat(testKeyPath); err != nil {
-		t.Skipf("Test GPG key not found at %s", testKeyPath)
-	}
+	testKeyPath := gpgtest.KeyPath(t)
 
 	signer, err := gpgsign.NewSigner(testKeyPath, "", false)
 	if err != nil {
@@ -534,11 +519,7 @@ func TestMultiplePackageVersions(t *testing.T) {
 
 // TestMultiRepoIsolation tests that two repos are fully isolated
 func TestMultiRepoIsolation(t *testing.T) {
-	// Load test GPG key
-	testKeyPath := getTestKeyPath()
-	if _, err := os.Stat(testKeyPath); err != nil {
-		t.Skipf("Test GPG key not found at %s", testKeyPath)
-	}
+	testKeyPath := gpgtest.KeyPath(t)
 
 	signer, err := gpgsign.NewSigner(testKeyPath, "", false)
 	if err != nil {
@@ -789,11 +770,7 @@ func TestMultiRepoIsolation(t *testing.T) {
 }
 
 func TestProtectedSuiteDrain(t *testing.T) {
-	// Load test GPG key
-	testKeyPath := getTestKeyPath()
-	if _, err := os.Stat(testKeyPath); err != nil {
-		t.Skipf("Test GPG key not found at %s", testKeyPath)
-	}
+	testKeyPath := gpgtest.KeyPath(t)
 
 	signer, err := gpgsign.NewSigner(testKeyPath, "", false)
 	if err != nil {

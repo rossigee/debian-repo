@@ -3,8 +3,6 @@ package apiserver
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +13,8 @@ import (
 	"git.golder.lan/rossgolderltd/debian-repo/internal/index"
 	"git.golder.lan/rossgolderltd/debian-repo/internal/model"
 	"git.golder.lan/rossgolderltd/debian-repo/internal/repo"
+	"git.golder.lan/rossgolderltd/debian-repo/internal/testsupport/gpgtest"
 )
-
-func getTestKeyPath() string {
-	_, filename, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(filename), "..", "..", "test", "fixtures", "test-key.asc")
-}
 
 // withTestRepo sets a repo in the request context (uses router.go:repoContext)
 func withTestRepo(r *http.Request, rp *repo.Repo) *http.Request {
@@ -82,10 +76,10 @@ func newTestServer(t *testing.T) *Server {
 		},
 	}
 
-	keyPath := getTestKeyPath()
+	keyPath := gpgtest.KeyPath(t)
 	signer, err := gpgsign.NewSigner(keyPath, "", false)
 	if err != nil {
-		t.Skipf("Test GPG key not found at %s", keyPath)
+		t.Fatalf("NewSigner(%s): %v", keyPath, err)
 	}
 
 	// Create a test repo with all required fields
