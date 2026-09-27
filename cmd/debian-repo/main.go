@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"sync"
 	"syscall"
 	"time"
 
@@ -113,90 +114,6 @@ func main() {
 			slog.Error("failed to build repo", "repo_id", rc.ID, "error", err)
 			os.Exit(1)
 		}
-
-		// Load snapshot from MinIO (or start with empty index if not found)
-		snap, err := rp.SnapshotStore.GetLatestSnapshot(context.Background())
-		if err != nil {
-			slog.Warn("failed to load snapshot for repo, starting with empty index", "repo_id", rp.ID, "error", err)
-			rp.IndexMgr.SetIndex(model.NewIndex())
-		} else if snap != nil {
-			slog.Info("loaded snapshot for repo", "repo_id", rp.ID, "gen", snap.SnapshotGen, "distributions", len(snap.Distributions))
-			loadedIndex := model.FromSnapshot(snap, "_meta/index-snapshot.json.gz")
-			rp.IndexMgr.SetIndex(loadedIndex)
-		} else {
-			slog.Info("no snapshot found for repo, starting with empty index", "repo_id", rp.ID)
-			rp.IndexMgr.SetIndex(model.NewIndex())
-		}
-
-		// Render all distributions (generate Packages files and signatures)
-		for _, suite := range rp.IndexMgr.ListDistributions() {
-			dist, ok := rp.IndexMgr.GetDistribution(suite)
-			if !ok {
-				continue
-			}
-
-			// Generate Release file with signatures
-			releaseData, err := aptmeta.RenderRelease(dist, rp.Metadata.Origin, rp.Metadata.Label, rp.Metadata.Description)
-			if err != nil {
-				slog.Warn("failed to render release", "repo_id", rp.ID, "suite", suite, "error", err)
-				continue
-			}
-
-			// Create detached signature (Release.gpg)
-			releaseGPG, err := rp.Signer.DetachSign(releaseData)
-			if err != nil {
-				slog.Warn("failed to create detached signature", "repo_id", rp.ID, "suite", suite, "error", err)
-				continue
-			}
-
-			// Create clearsigned version (InRelease)
-			inRelease, err := rp.Signer.ClearSign(releaseData)
-			if err != nil {
-				slog.Warn("failed to create clearsigned release", "repo_id", rp.ID, "suite", suite, "error", err)
-				continue
-			}
-
-			// Render Packages for all architectures (use first component only)
-			packagesByArch := make(map[string][]byte)
-			packagesGzByArch := make(map[string][]byte)
-
-			// Get components in sorted order for deterministic rendering
-			components := make([]string, 0, len(dist.Components))
-			for compName := range dist.Components {
-				components = append(components, compName)
-			}
-			sort.Strings(components)
-
-			for _, arch := range dist.Architectures {
-				if len(components) == 0 {
-					continue
-				}
-				compName := components[0] // Always use first component (sorted)
-				uncompressed, compressed, err := aptmeta.RenderPackages(dist, compName, arch)
-				if err != nil {
-					slog.Warn("failed to render packages", "repo_id", rp.ID, "suite", suite, "component", compName, "arch", arch, "error", err)
-					continue
-				}
-				packagesByArch[arch] = uncompressed
-				packagesGzByArch[arch] = compressed
-			}
-
-			// Store rendered distribution
-			rendered := &model.RenderedDist{
-				Suite:            suite,
-				ReleasePlain:     releaseData,
-				ReleaseGPG:       releaseGPG,
-				InRelease:        inRelease,
-				PackagesByArch:   packagesByArch,
-				PackagesGzByArch: packagesGzByArch,
-				RenderedAt:       time.Now(),
-			}
-
-			if err := rp.IndexMgr.SetRenderedDist(suite, rendered); err != nil {
-				slog.Warn("failed to set rendered distribution", "repo_id", rp.ID, "suite", suite, "error", err)
-			}
-		}
-
 		repos = append(repos, rp)
 	}
 
@@ -306,6 +223,15 @@ func main() {
 		}
 	}()
 
+	// Load snapshots and render metadata in the background, after the listener
+	// is up. The process now accepts connections immediately and answers /readyz
+	// with 503 until hydration finishes, instead of refusing connections while
+	// MinIO is slow. That keeps a TCP health check passing and gives apt clients
+	// a retryable response rather than a reset connection.
+	hydrateCtx, cancelHydrate := context.WithCancel(context.Background())
+	defer cancelHydrate()
+	go hydrateAll(hydrateCtx, repos)
+
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -326,4 +252,114 @@ func main() {
 	}
 
 	slog.Info("shutdown complete")
+}
+
+// hydrateAll loads each repository's snapshot and renders its metadata,
+// marking each repository hydrated as it completes. Repositories are hydrated
+// concurrently so a slow one does not delay the others.
+func hydrateAll(ctx context.Context, repos []*repo.Repo) {
+	var wg sync.WaitGroup
+	for _, rp := range repos {
+		wg.Add(1)
+		go func(rp *repo.Repo) {
+			defer wg.Done()
+			hydrateRepo(ctx, rp)
+		}(rp)
+	}
+	wg.Wait()
+}
+
+// hydrateRepo loads the latest snapshot for one repository, installs it as the
+// live index, and renders Release/InRelease/Packages for every suite.
+func hydrateRepo(ctx context.Context, rp *repo.Repo) {
+	started := time.Now()
+	slog.Info("hydrating repo", "repo_id", rp.ID)
+
+	// Load snapshot from MinIO (or start with empty index if not found)
+	snap, err := rp.SnapshotStore.GetLatestSnapshot(ctx)
+	if err != nil {
+		slog.Warn("failed to load snapshot for repo, starting with empty index", "repo_id", rp.ID, "error", err)
+		rp.IndexMgr.SetIndex(model.NewIndex())
+	} else if snap != nil {
+		slog.Info("loaded snapshot for repo", "repo_id", rp.ID, "gen", snap.SnapshotGen, "distributions", len(snap.Distributions))
+		rp.IndexMgr.SetIndex(model.FromSnapshot(snap, "_meta/index-snapshot.json.gz"))
+	} else {
+		slog.Info("no snapshot found for repo, starting with empty index", "repo_id", rp.ID)
+		rp.IndexMgr.SetIndex(model.NewIndex())
+	}
+
+	// Render all distributions (generate Packages files and signatures)
+	for _, suite := range rp.IndexMgr.ListDistributions() {
+		if ctx.Err() != nil {
+			return
+		}
+		dist, ok := rp.IndexMgr.GetDistribution(suite)
+		if !ok {
+			continue
+		}
+
+		// Generate Release file with signatures
+		releaseData, err := aptmeta.RenderRelease(dist, rp.Metadata.Origin, rp.Metadata.Label, rp.Metadata.Description)
+		if err != nil {
+			slog.Warn("failed to render release", "repo_id", rp.ID, "suite", suite, "error", err)
+			continue
+		}
+
+		// Create detached signature (Release.gpg)
+		releaseGPG, err := rp.Signer.DetachSign(releaseData)
+		if err != nil {
+			slog.Warn("failed to create detached signature", "repo_id", rp.ID, "suite", suite, "error", err)
+			continue
+		}
+
+		// Create clearsigned version (InRelease)
+		inRelease, err := rp.Signer.ClearSign(releaseData)
+		if err != nil {
+			slog.Warn("failed to create clearsigned release", "repo_id", rp.ID, "suite", suite, "error", err)
+			continue
+		}
+
+		// Render Packages for all architectures (use first component only)
+		packagesByArch := make(map[string][]byte)
+		packagesGzByArch := make(map[string][]byte)
+
+		// Get components in sorted order for deterministic rendering
+		components := make([]string, 0, len(dist.Components))
+		for compName := range dist.Components {
+			components = append(components, compName)
+		}
+		sort.Strings(components)
+
+		for _, arch := range dist.Architectures {
+			if len(components) == 0 {
+				continue
+			}
+			compName := components[0] // Always use first component (sorted)
+			uncompressed, compressed, err := aptmeta.RenderPackages(dist, compName, arch)
+			if err != nil {
+				slog.Warn("failed to render packages", "repo_id", rp.ID, "suite", suite, "component", compName, "arch", arch, "error", err)
+				continue
+			}
+			packagesByArch[arch] = uncompressed
+			packagesGzByArch[arch] = compressed
+		}
+
+		// Store rendered distribution
+		rendered := &model.RenderedDist{
+			Suite:            suite,
+			ReleasePlain:     releaseData,
+			ReleaseGPG:       releaseGPG,
+			InRelease:        inRelease,
+			PackagesByArch:   packagesByArch,
+			PackagesGzByArch: packagesGzByArch,
+			RenderedAt:       time.Now(),
+		}
+
+		if err := rp.IndexMgr.SetRenderedDist(suite, rendered); err != nil {
+			slog.Warn("failed to set rendered distribution", "repo_id", rp.ID, "suite", suite, "error", err)
+		}
+	}
+
+	rp.MarkHydrated()
+	slog.Info("repo hydrated", "repo_id", rp.ID, "suites", len(rp.IndexMgr.ListDistributions()), "took", time.Since(started).String())
 }

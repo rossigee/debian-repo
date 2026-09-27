@@ -137,34 +137,34 @@ func (s *Server) registerRepoRoutes(mux *http.ServeMux, rp *repo.Repo) {
 	pattern := func(path string) string { return repo.RoutePattern(rp, path) }
 
 	// HTML pages: always public (users need access to install instructions and GPG key)
-	mux.HandleFunc(pattern("/"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(pattern("/"), s.wrapMethod(s.requireHydrated(rp, func(w http.ResponseWriter, r *http.Request) {
 		s.handleIndexCards(w, r.WithContext(repoContext(r.Context(), rp)))
-	}, "GET"))
-	mux.HandleFunc(pattern("/install.html"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
+	}), "GET"))
+	mux.HandleFunc(pattern("/install.html"), s.wrapMethod(s.requireHydrated(rp, func(w http.ResponseWriter, r *http.Request) {
 		s.handleInstall(w, r.WithContext(repoContext(r.Context(), rp)))
-	}, "GET"))
-	mux.HandleFunc(pattern("/gpg-key.html"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
+	}), "GET"))
+	mux.HandleFunc(pattern("/gpg-key.html"), s.wrapMethod(s.requireHydrated(rp, func(w http.ResponseWriter, r *http.Request) {
 		s.handleGPGKeyPage(w, r.WithContext(repoContext(r.Context(), rp)))
-	}, "GET"))
-	mux.HandleFunc(pattern("/packages/"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
+	}), "GET"))
+	mux.HandleFunc(pattern("/packages/"), s.wrapMethod(s.requireHydrated(rp, func(w http.ResponseWriter, r *http.Request) {
 		s.handlePackageDetail(w, r.WithContext(repoContext(r.Context(), rp)))
-	}, "GET"))
+	}), "GET"))
 
 	// JSON API endpoints (always public)
-	mux.HandleFunc(pattern("/index.json"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(pattern("/index.json"), s.wrapMethod(s.requireHydrated(rp, func(w http.ResponseWriter, r *http.Request) {
 		s.handleIndexJSON(w, r.WithContext(repoContext(r.Context(), rp)))
-	}, "GET"))
+	}), "GET"))
 
 	// Repository metadata endpoints (public)
 	mux.HandleFunc(pattern("/pubkey.gpg"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
 		s.handlePublicKey(w, r.WithContext(repoContext(r.Context(), rp)))
 	}, "GET"))
-	mux.HandleFunc(pattern("/dists/{suite}/feed.atom"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(pattern("/dists/{suite}/feed.atom"), s.wrapMethod(s.requireHydrated(rp, func(w http.ResponseWriter, r *http.Request) {
 		s.handleSuiteFeed(w, r.WithContext(repoContext(r.Context(), rp)))
-	}, "GET"))
-	mux.HandleFunc(pattern("/dists/"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
+	}), "GET"))
+	mux.HandleFunc(pattern("/dists/"), s.wrapMethod(s.requireHydrated(rp, func(w http.ResponseWriter, r *http.Request) {
 		s.handleDists(w, r.WithContext(repoContext(r.Context(), rp)))
-	}, "GET", "HEAD"))
+	}), "GET", "HEAD"))
 
 	if s.deps.Config.PoolServeMode == "proxy" {
 		mux.HandleFunc(pattern("/pool/"), s.wrapMethod(func(w http.ResponseWriter, r *http.Request) {
@@ -291,16 +291,34 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintf(w, "OK\n")
 }
 
-// handleReadyz returns 200 if ready to serve
+// handleReadyz returns 200 once the repository's snapshot is loaded and its
+// metadata rendered, and 503 with Retry-After until then. Liveness is
+// /healthz, which stays 200 as soon as the process is up.
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	// Check if any repo's index is loaded
 	rp := s.currentRepo(r)
-	if rp == nil || len(rp.IndexMgr.ListDistributions()) == 0 {
-		http.Error(w, "Service not ready", http.StatusServiceUnavailable)
+	if rp == nil || !rp.Hydrated() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "repository metadata is still loading", http.StatusServiceUnavailable)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprintf(w, "Ready\n")
+}
+
+// requireHydrated wraps a handler that serves rendered repository metadata.
+// Until hydration completes it answers 503 with Retry-After, so a client such as
+// apt gets a retryable signal rather than a half-rendered index. The process is
+// already listening by this point, so the connection succeeds and the failure is
+// explicit rather than a refused connection.
+func (s *Server) requireHydrated(rp *repo.Repo, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !rp.Hydrated() {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "repository metadata is still loading, retry shortly", http.StatusServiceUnavailable)
+			return
+		}
+		next(w, r)
+	}
 }
 
 // handleLogin initiates OIDC authentication flow with optional return_to redirect

@@ -51,11 +51,16 @@ func TestHandleRemovePackagePrefixedRepo(t *testing.T) {
 // global; per-repo patterns must not collide).
 func TestRegisterTwoReposNoPanic(t *testing.T) {
 	s := newTestServer(t)
-	second := *s.registry.All()[0]
-	second.ID = "testing"
-	second.PathPrefix = "/testing"
+	// A Repo carries an atomic.Bool, so it must not be copied by value. Build a
+	// second Repo with its own identity rather than dereferencing the first.
+	second := &repo.Repo{
+		ID:         "testing",
+		PathPrefix: "/testing",
+		IndexMgr:   s.registry.All()[0].IndexMgr,
+		JobManager: s.registry.All()[0].JobManager,
+	}
 
-	reg, err := repo.NewRegistry([]*repo.Repo{s.registry.All()[0], &second})
+	reg, err := repo.NewRegistry([]*repo.Repo{s.registry.All()[0], second})
 	if err != nil {
 		t.Fatalf("registry failed: %v", err)
 	}
