@@ -1,0 +1,121 @@
+name: Work item
+description: A bug, a feature, or a piece of roadmap work. Read the definition of ready below before filing.
+title: "[type] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing. Please complete every section — an issue that reaches
+        review with gaps in **Out of scope** or **Acceptance criteria** will be sent
+        back rather than started.
+
+        Not a security problem? Do **not** use this form. See
+        [SECURITY.md](../blob/master/SECURITY.md) for private reporting.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type
+      options:
+        - Bug — something behaves incorrectly
+        - Feature — something is missing
+        - Chore — refactor, cleanup, tooling
+        - Docs — documentation only
+        - Security — hardening, or a security fix that is not yet public
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Drives auto-routing and the By Area view. A `area:` label is applied automatically from the changed paths if omitted.
+      options:
+        - routing — HTTP routing, vhost/path-prefix, handlers
+        - authz — ACL, apt basic auth, OIDC, CI tokens
+        - storage — MinIO, snapshots, pool objects, key layout
+        - index — index manager, suite/component/arch model, rendering
+        - api — CI/JSON API surface, OpenAPI spec
+        - ui — templates, CSS, accessibility
+        - ci — workflows, releases, build
+        - docs — docs site and ADRs
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 — data loss, or a live outage
+        - P1 — correctness or security defect
+        - P2 — roadmap work, not yet scheduled
+        - P3 — nice to have
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong or missing, and the impact. Not a solution.
+      placeholder: |
+        `apt-get dist-upgrade` reinstalls every package at the identical version on
+        every run. The served `Packages` stanza omits `Installed-Size`, so apt's
+        VersionHash disagrees with dpkg's status entry and it marks each package for
+        install.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Testable statements. "It works" is not a criterion.
+      placeholder: |
+        - [ ] `GET /readyz` returns 503 while any repository is unhydrated
+        - [ ] `GET /readyz` returns 200 only when all repositories are hydrated
+        - [ ] Covered by a test that fails without this change
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: Design
+      description: Approach in a few lines, or a link to a Discussion/ADR. Leave blank only for trivial changes.
+    validations:
+      required: false
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: >
+        What this change deliberately does NOT do. This is the field that keeps
+        pull requests reviewable, and the one most often skipped.
+      placeholder: |
+        - Does not add per-component `Packages` rendering (tracked separately)
+        - Does not change the snapshot format
+    validations:
+      required: true
+
+  - type: input
+    id: size
+    attributes:
+      label: Size
+      description: XS (hours) · S (a day) · M (2-3 days) · L (a week+) · XL (multi-week)
+      placeholder: S
+    validations:
+      required: true
+
+  - type: textarea
+    id: deps
+    attributes:
+      label: Dependencies
+      description: Issue numbers this is blocked by, if any.
+      placeholder: |
+        Blocked by #42
+    validations:
+      required: false

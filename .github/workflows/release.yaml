@@ -6,6 +6,10 @@ on:
 
 jobs:
   release:
+    # Stays on a GitHub-hosted runner until self-hosted runners exist. A tag push
+    # is a trusted event and is the right place for self-hosted capacity, but
+    # pointing this at a label with no registered runner queues the release
+    # silently forever. See the note in build.yaml for the intended split.
     runs-on: ubuntu-latest
     permissions:
       contents: write
