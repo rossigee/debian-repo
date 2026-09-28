@@ -10,13 +10,11 @@ Templates are organized into logical directories:
 
 ```
 internal/templates/
-├── layout/              # Base HTML structures
-│   └── base.html       # (Deprecated, now using per-page templates)
 ├── components/         # Reusable HTML components
 │   ├── navbar.html     # Navigation bar with burger menu
 │   └── theme-toggle.html # Light/dark theme toggle button
 ├── pages/              # Full page templates
-│   ├── index.html      # Repository index
+│   ├── index-cards.html # Repository index (card grid)
 │   ├── install.html    # Installation instructions
 │   └── gpgkey.html     # GPG key information
 ├── static/             # CSS and JavaScript files
@@ -79,10 +77,10 @@ Each page is a complete HTML document. Render via the Loader:
 ```go
 loader := templates.NewLoader()
 
-// Render index page
-html, err := loader.RenderIndex(&IndexPageData{
-  TotalPackages: 42,
-  Distributions: [...],
+// Render the index page
+html, err := loader.RenderIndexCards(&CardIndexPageData{
+	TotalPackages: 42,
+	Suites:        [...],
 })
 
 // Render install page

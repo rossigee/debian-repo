@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-//go:embed layout/*.html components/*.html pages/*.html static/*
+//go:embed components/*.html pages/*.html static/*
 var templateFS embed.FS
 
 var (
@@ -86,29 +86,6 @@ func (l *Loader) parseTemplates(pagePattern string) (*template.Template, error) 
 	cacheMu.Unlock()
 
 	return tmpl, nil
-}
-
-// RenderIndex renders the index page
-func (l *Loader) RenderIndex(data *IndexPageData) (string, error) {
-	if data.NavItems == nil {
-		data.NavItems = map[string]string{
-			"index":   "/",
-			"install": "/install.html",
-			"gpg":     "/gpg-key.html",
-		}
-	}
-
-	tmpl, err := l.parseTemplates("pages/index.html")
-	if err != nil {
-		return "", err
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "pages/index.html", data); err != nil {
-		return "", fmt.Errorf("failed to render index: %w", err)
-	}
-
-	return buf.String(), nil
 }
 
 // RenderInstall renders the install page
