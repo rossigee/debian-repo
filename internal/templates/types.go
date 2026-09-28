@@ -21,45 +21,6 @@ type PageData struct {
 	OIDCEnabled     bool   // True if OIDC is configured
 }
 
-// IndexPageData contains data for the repository index page
-type IndexPageData struct {
-	PageData
-	TotalPackages     int
-	DistributionCount int
-	LastUpdated       time.Time
-	Distributions     []DistributionData
-}
-
-// DistributionData represents a distribution/suite in the index
-type DistributionData struct {
-	Name       string
-	Components []ComponentData
-}
-
-// ComponentData represents a component within a distribution
-type ComponentData struct {
-	Name     string
-	Packages []PackageListItem
-}
-
-// PackageListItem represents a package in the list view
-type PackageListItem struct {
-	Name        string
-	Description string
-	Versions    []VersionInfo
-	Section     string
-	Priority    string
-	Maintainer  string
-	Depends     string
-}
-
-// VersionInfo represents version/architecture info
-type VersionInfo struct {
-	Version      string
-	Architecture string
-	Size         int64
-}
-
 // InstallPageData contains data for the installation instructions page
 type InstallPageData struct {
 	PageData
