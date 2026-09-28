@@ -47,17 +47,40 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          FILES: ${{ join(github.event.pull_request.changed_files.*.filename, ' ') }}
-        run: |
-          # Ordered: first match wins, so list the most specific areas first.
-          apply() {
-            grep -qE "$1" <<<"$FILES" && gh pr edit "$PR" --add-label "$2" 2>/dev/null || true
-          }
-          apply '\.github/workflows/|^\.github/CODEOWNERS|^Dockerfile|^Makefile$' 'area:ci'
-          apply '^internal/templates/|^internal/htmlpages/'                          'area:ui'
-          apply '^internal/acl/|^internal/aptauth/|^internal/webauth/|^internal/config/' 'area:authz'
-          apply '^internal/storage/|^internal/repo/'                                 'area:storage'
-          apply '^internal/index/|^internal/model/|^internal/aptmeta/|^internal/reconcile/' 'area:index'
-          apply '^internal/apiserver/'                                               'area:api'
-          apply '^docs/|^AGENTS\.md|^RELEASE_NOTES\.md|^SECURITY\.md'               'area:docs'
-          echo "Applied area labels for $PR from:"; tr ' ' '\n' <<<"$FILES" | sed 's/^/    /'
+          run: |
+            # The filenames are NOT in the event payload: pull_request carries
+            # changed_files as an integer count, not an array. They have to come
+            # from the API. Paginate, or a large pull request is labelled from a
+            # partial file list.
+            files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+            if [ -z "$files" ]; then
+              echo "::error::Could not determine changed files for #$PR; refusing to guess an area."
+              exit 1
+            fi
+
+            echo "Changed files:"
+            sed 's/^/    /' <<<"$files"
+
+            # Ordered: first match wins, so list the most specific areas first.
+            # A path can match more than one pattern, so collect every match
+            # rather than short-circuiting.
+            applied=""
+            apply() {
+              if grep -qE "$1" <<<"$files"; then
+                gh pr edit "$PR" --add-label "$2"
+                applied="$applied $2"
+              fi
+            }
+            apply '^internal/acl/|^internal/aptauth/|^internal/webauth/|^internal/config/' 'area:authz'
+            apply '^internal/storage/|^internal/repo/'                                  'area:storage'
+            apply '^internal/index/|^internal/model/|^internal/aptmeta/|^internal/reconcile/' 'area:index'
+            apply '^internal/apiserver/'                                                'area:api'
+            apply '^internal/templates/|^internal/htmlpages/'                          'area:ui'
+            apply '^\.github/workflows/|^\.github/CODEOWNERS|^Dockerfile$|^Makefile$'   'area:ci'
+            apply '^docs/|^AGENTS\.md$|^RELEASE_NOTES\.md$|^SECURITY\.md$'             'area:docs'
+
+            if [ -z "$applied" ]; then
+              echo "::notice::No area label matched for #$PR. Add one by hand, or extend the patterns in governance.yaml."
+            else
+              echo "Applied:$applied"
+            fi
