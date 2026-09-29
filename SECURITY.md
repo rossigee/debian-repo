@@ -18,6 +18,33 @@ Please include:
 Expect an acknowledgement within a few days. There is no formal SLA; if you need one,
 say so in the report and it will be addressed explicitly.
 
+## If you are part of the team
+
+Almost everything here is tracked in public: roadmap, design discussions, issues, and
+the plan for the v1.0 authorization rewrite. **A live vulnerability in released code is
+the exception.** If you find one, it goes through private vulnerability reporting like
+any other report, not the public board.
+
+This is worth stating because the pressure runs the other way. Every other kind of work
+in this repository is visible to everyone by the time it is discussed, and a public
+issue is the fast, natural way to pull people in. For a vulnerability that is the wrong
+instinct even where no sensitive data is involved, because:
+
+- The advisory is the coordination point. A public issue fragments the discussion,
+  loses the confidentiality that `Valid-Until`-style disclosure windows depend on, and
+  is trivially discoverable by anyone watching the repository.
+- A fix branch and a pull request are public the moment they are pushed. Opening the
+  issue first publishes the shape of the flaw before the patch exists.
+
+This applies to bugs in **released** code. A flaw in an unreleased design is not a
+vulnerability in anything a user can run, and discussing it openly — including the
+alternative approaches that were rejected — is one of the better reasons for the project
+being open source. Design discussion belongs in public; vulnerability disclosure does
+not.
+
+If you are unsure which category something is, it is a vulnerability. Open a private
+advisory and say so in it; it can be reclassified in public afterwards.
+
 ## Scope
 
 `debian-repo` is a Go service that serves a Debian package repository and accepts
