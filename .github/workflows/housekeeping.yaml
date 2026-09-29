@@ -7,6 +7,15 @@ name: Housekeeping
 # issue or pull request. Stale work is reported in the digest instead of nagging
 # its author. If you want a stale item chased, the Project's Blocked view is the
 # place to look, not an automated comment on someone's pull request.
+#
+# Failure handling, learned the hard way. The first version of this workflow
+# appended `2>/dev/null || echo "_none_"` to every call, so a mis-addressed
+# endpoint produced a complete-looking digest with no data in it, and the job
+# exited 0. A section that cannot be read is now named in a ::warning:: and the
+# job exits non-zero, while still keeping whatever partial data it managed to
+# fetch. Failures accumulate through a file rather than a variable, because
+# api() is invoked inside a command substitution and therefore in a subshell,
+# where a variable assignment is discarded on return.
 
 on:
   schedule:
@@ -21,13 +30,38 @@ permissions:
 jobs:
   digest:
     name: weekly digest
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     steps:
       - name: Summarise milestones, open work, stale items and recent merges
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
+          # gh api takes a path relative to the API root, so a repository
+          # endpoint must be prefixed with "repos/". Without it every call
+          # returns 404 and gh prints a truncated JSON error body.
+          REPO: repos/${{ github.repository }}
         run: |
+          set -uo pipefail
+          ERRLOG=$(mktemp)
+          trap 'rm -f "$ERRLOG"' EXIT
+
+          # api <name> <jq-filter> <path> [extra-paths...]
+          # Prints the filtered result on stdout. On failure records <name> in
+          # ERRLOG, reports to stderr, and returns non-zero with no stdout.
+          api() {
+            local name="$1" filter="$2"; shift 2
+            local out rc=0
+            for path in "$@"; do
+              if ! out=$(gh api "$path" --jq "$filter" 2>/dev/null); then
+                echo "$name" >> "$ERRLOG"
+                echo "::error::section '$name' failed reading $path" >&2
+                rc=1
+              else
+                printf '%s\n' "$out"
+              fi
+            done
+            return $rc
+          }
+
           {
             echo "## Weekly digest"
             echo
@@ -36,26 +70,26 @@ jobs:
 
             echo "### Milestones"
             echo
-            gh api "$REPO/milestones?state=open" --jq '.[] |
-              "- **\(.title)** — \(.open_issues) open, \(.closed_issues) closed"' 2>/dev/null \
-              || echo "_none_"
+            m=$(api milestones '.[] | "- **\(.title)** — \(.open_issues) open, \(.closed_issues) closed"' \
+                "$REPO/milestones?state=open") || true
+            [ -n "${m:-}" ] && printf '%s\n' "$m" || echo "_none_"
             echo
 
             echo "### Open work by label"
             echo
             found=0
             for l in "type:bug" "type:security" "risk:data-loss" "risk:breaking" "risk:migration"; do
-              c=$(gh api "$REPO/issues?state=open&labels=$l&per_page=100" --jq 'length' 2>/dev/null || echo 0)
-              if [ "$c" != "0" ]; then echo "- $l: $c"; found=1; fi
+              c=$(api "label:$l" 'length' "$REPO/issues?state=open&labels=$l&per_page=100") || true
+              if [ -n "${c:-}" ] && [ "$c" != "0" ]; then echo "- $l: $c"; found=1; fi
             done
             [ "$found" = "0" ] && echo "_nothing open_"
             echo
 
             echo "### Open pull requests"
             echo
-            gh api "$REPO/pulls?state=open&per_page=100" --jq '.[] |
-              "- #\(.number) \(.title[0:70]) — \(.user.login), updated \(.updated_at[0:10])"' 2>/dev/null \
-              || echo "_none_"
+            p=$(api pulls '.[] | "- #\(.number) \(.title[0:70]) — \(.user.login), updated \(.updated_at[0:10])"' \
+                "$REPO/pulls?state=open&per_page=100") || true
+            [ -n "${p:-}" ] && printf '%s\n' "$p" || echo "_none_"
             echo
 
             echo "### Quiet for 14 days"
@@ -64,8 +98,14 @@ jobs:
             echo
             CUTOFF=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
             found=0
-            for n in $(gh api "$REPO/issues?state=open&per_page=100" --jq '.[].number'); do
-              read -r updated ispr < <(gh api "$REPO/issues/$n" --jq '"\(.updated_at) \(.pull_request != null)"')
+            nums=$(api issue-numbers '.[].number' "$REPO/issues?state=open&per_page=100") || true
+            for n in ${nums:-}; do
+              rec=$(gh api "$REPO/issues/$n" --jq '"\\(.updated_at) \\(.pull_request != null)"' 2>/dev/null) || {
+                echo "issue:$n" >> "$ERRLOG"
+                echo "::error::could not read issue $n" >&2
+                continue; }
+              updated="${rec%% *}"
+              ispr="${rec##* }"
               if [[ "$updated" < "$CUTOFF" ]]; then
                 kind=$([ "$ispr" = "true" ] && echo "PR" || echo "issue")
                 echo "- #$n ($kind) — last activity ${updated:0:10}"
@@ -77,7 +117,13 @@ jobs:
 
             echo "### Recent merges"
             echo
-            gh api "$REPO/commits?per_page=15" --jq '.[0:10][] |
-              "- \(.sha[0:7]) \(.commit.message | split("\n")[0] | .[0:70])"' 2>/dev/null \
-              || echo "_none_"
+            c=$(api commits '.[0:10][] | "- \(.sha[0:7]) \(.commit.message | split("\n")[0] | .[0:70])"' \
+                 "$REPO/commits?per_page=15") || true
+            [ -n "${c:-}" ] && printf '%s\n' "$c" || echo "_none_"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -s "$ERRLOG" ]; then
+            echo "::warning::Digest incomplete. Failed sections: $(sort -u "$ERRLOG" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "Digest written to the run summary."
