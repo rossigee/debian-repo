@@ -56,3 +56,18 @@ jobs:
             echo "❌ Cryptographic keys detected in commit"
             exit 1
           fi
+
+      # A workflow can be valid YAML and still be rejected by the Actions
+      # runner, so a YAML parser is not a sufficient check here. actionlint
+      # understands the Actions schema and catches steps that lost their run
+      # section, undefined expressions and similar structural faults.
+      #
+      # Pinned so a new actionlint release cannot fail the build unannounced.
+      # Ignore patterns live in .github/actionlint.yaml.
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Lint GitHub Actions workflows
+        run: |
+          "$(go env GOPATH)/bin/actionlint" -color
+
