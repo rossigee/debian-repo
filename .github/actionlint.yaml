@@ -1,0 +1,35 @@
+# actionlint configuration
+#
+# This gate is deliberately narrow. It fails the build on workflow *structural*
+# errors only.
+#
+# Why a plain YAML check is not enough: a workflow can be valid YAML and still
+# be rejected by the Actions runner. In #40 a `run: |` ended up indented to the
+# same level as the keys under `env:`, so YAML parsed it as `env.run` and the
+# step had neither `run` nor `uses`. PyYAML reported no error, because
+# `env: {..., run: "..."}` is a valid mapping. GitHub rejected the whole file,
+# displayed the file path as the workflow name, and ran the job against a
+# `push` trigger the file never declared. The job silently did nothing, and it
+# stayed that way until a pull request came back with no labels and no
+# governance checks on it.
+#
+# The rule: validate workflows with actionlint, not a YAML parser.
+#
+# shellcheck and action-version findings are ignored for now. They are real and
+# worth addressing, but they are pre-existing across every workflow and are not
+# what this gate is for. Drop the corresponding patterns once they are fixed.
+paths:
+  .github/workflows/**/*.yaml:
+    ignore:
+      - 'shellcheck reported issue in this script'
+      # actions/setup-go@v4 predates the current runner image. It still runs;
+      # upgrading it is a separate change.
+      - 'the runner of .* action is too old'
+      # GitHub has rolled out a 26.04 runner image that actionlint's bundled
+      # label list predates.
+      - 'is unknown\. available labels are'
+  .github/workflows/**/*.yml:
+    ignore:
+      - 'shellcheck reported issue in this script'
+      - 'the runner of .* action is too old'
+      - 'is unknown\. available labels are'
