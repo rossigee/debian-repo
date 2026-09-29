@@ -26,13 +26,20 @@ jobs:
 
       - name: Extract version from tag
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          RAW_VERSION=${GITHUB_REF#refs/tags/}
           COMMIT=$(git rev-parse --short HEAD)
           DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
+          # Keep the raw tag for the verification step below. Verifying the
+          # normalised value instead would make the check unable to see a
+          # missing "v", which is the one thing it exists to catch.
+          echo "RAW_VERSION=$RAW_VERSION" >> $GITHUB_ENV
+
           # Version tags are always v-prefixed, so a tag created without the
           # "v" still produces a correctly named image rather than a stray
-          # un-prefixed tag.
+          # un-prefixed tag. Unreachable while the trigger is 'v*'; kept so that
+          # loosening the trigger cannot silently reintroduce an un-prefixed tag.
+          VERSION="$RAW_VERSION"
           case "$VERSION" in
             v*) ;;
             *) VERSION="v$VERSION" ;;
@@ -44,10 +51,14 @@ jobs:
 
       - name: Verify tag matches VERSION file
         run: |
-          if [ "${{ env.VERSION }}" != "v$(cat VERSION)" ]; then
-            echo "❌ Tag version does not match VERSION file"
-            echo "   tag:    ${{ env.VERSION }}"
-            echo "   VERSION: v$(cat VERSION)"
+          # Compared against the raw tag, not the normalised one. Checking
+          # env.VERSION here would pass a "0.5.3" tag whose VERSION file says
+          # 0.5.3, publishing a release and image called v0.5.3 for a tag that
+          # does not exist.
+          if [ "${{ env.RAW_VERSION }}" != "v$(cat VERSION)" ]; then
+            echo "❌ Tag does not match VERSION file"
+            echo "   tag:     ${{ env.RAW_VERSION }}"
+            echo "   expected: v$(cat VERSION)"
             exit 1
           fi
 
@@ -73,8 +84,8 @@ jobs:
 
           # Create checksums
           cd build/releases
-          sha256sum * > SHA256SUMS
-          sha1sum * > SHA1SUMS
+          sha256sum ./* > SHA256SUMS
+          sha1sum ./* > SHA1SUMS
 
       - name: Build Docker image
         run: |

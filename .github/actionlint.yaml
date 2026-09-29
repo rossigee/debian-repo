@@ -15,9 +15,23 @@
 #
 # The rule: validate workflows with actionlint, not a YAML parser.
 #
-# shellcheck and action-version findings are ignored for now. They are real and
-# worth addressing, but they are pre-existing across every workflow and are not
-# what this gate is for. Drop the corresponding patterns once they are fixed.
+# shellcheck findings are ignored wholesale, and that is worth being honest
+# about: it masks real issues too. Of the twelve findings in this repository,
+# most are false positives because shellcheck does not understand GitHub
+# expressions. `${{ env.VERSION }}` inside a quoted -ldflags string is not an
+# unquoted variable, and `${{ ... }}` inside single quotes in a JSON body is
+# correct as written. A few are genuine unquoted-variable style findings, such
+# as $modified_files in lint.yaml's secret check, which are benign only because
+# no path in this repository contains a space.
+#
+# So this ignore suppresses roughly as much noise as signal. Narrowing it needs
+# shellcheck taught about Actions expressions, or the scripts extracted and
+# linted directly. Neither is done. Until then, review new shellcheck output by
+# running actionlint with a config that does not ignore it.
+#
+# The other two patterns are stale-data suppressions: the ubuntu-26.04 label is
+# newer than actionlint's bundled list, and actions/setup-go@v4 predates the
+# current runner image but still runs.
 paths:
   .github/workflows/**/*.yaml:
     ignore:
