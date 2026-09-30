@@ -36,6 +36,34 @@ does not rebuild it:
 | Authorization | Identity-provider roles for the coarse tier, existing `acl.Grant` for repo/suite/component |
 | Repo visibility | Per-repo `public` / `private` |
 | UI framework | Bootstrap 5.3.8, vendored, compiled from Sass at release time |
+| Publishing | v1.0 work is developed in public, on this repository |
+
+### What developing in public costs, and buys
+
+**Buys.** Every design decision is reviewable by people who will not work on it, and the
+rejected alternatives are as visible as the chosen one. The v1.0 tenancy model, the
+authorization model and the cache decision are all recorded as ADRs precisely because
+outsiders can check the reasoning. It is also why the plan needs no separate private
+copy to keep in sync.
+
+**Costs, and the two that have teeth:**
+
+- **Designs are public before they ship.** The authorization rewrite in Phase 1 is a
+  security-relevant design and it will be discussed openly from the first issue. That is
+  fine — it is not a vulnerability in anything a user can run. But it does mean the
+  moment a *released* vulnerability is found, the public board is the wrong place, and
+  the instinct will be against us. [`SECURITY.md`](SECURITY.md) now covers that case
+  explicitly for people on the team, not just for outside reporters.
+- **Credentials and tenancy config need indirection sooner.** Per-tenant MinIO
+  credentials do not belong in a committed `config.yaml` in a public repository, and
+  `config.yaml` is gitignored, which is not a control. Phase 2 should move tenant
+  storage configuration into storage behind `RepoConfigStore` and support secret
+  references. This moves up in priority because the repository is public, not because
+  the design changed.
+
+**Not a consequence:** there is no confidentiality argument for the code itself, and so
+no reason to reach for a paid tier. The hosted runners are already free on a public
+repository, and secret scanning with push protection is enabled.
 
 ## Phase 0 — correctness blockers · milestone `0.6.0`
 
