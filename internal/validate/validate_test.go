@@ -2,6 +2,7 @@ package validate
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 )
 
@@ -174,5 +175,101 @@ func TestChecksumsValidation(t *testing.T) {
 				t.Logf("expected length %d, got %d", tt.length, len(tt.checksum))
 			}
 		})
+	}
+}
+
+// TestParseControlFileDuplicateFields tests that a stanza declaring the same
+// field name twice is rejected. dpkg refuses such a .deb with "duplicate
+// value for user-defined field 'Homepage'", so accepting it here would let the
+// repository serve a package the client cannot install.
+func TestParseControlFileDuplicateFields(t *testing.T) {
+	tests := []struct {
+		name       string
+		control    string
+		wantField  string
+		wantFirst  int
+		wantRepeat int
+	}{
+		{
+			name: "user_defined_field",
+			control: `Package: chiron
+Version: 1.1-1
+Architecture: all
+Homepage: https://example.com/a
+Homepage: https://example.com/b
+Description: dup homepage
+ text
+`,
+			wantField:  "Homepage",
+			wantFirst:  4,
+			wantRepeat: 5,
+		},
+		{
+			name: "known_field",
+			control: `Package: chiron
+Version: 1.1-1
+Architecture: all
+Description: first
+Description: second
+`,
+			wantField:  "Description",
+			wantFirst:  4,
+			wantRepeat: 5,
+		},
+		{
+			name: "case_insensitive",
+			control: `Package: chiron
+Homepage: https://example.com/a
+homepage: https://example.com/b
+`,
+			wantField:  "homepage",
+			wantFirst:  2,
+			wantRepeat: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields, err := parseControlFile([]byte(tt.control))
+			if err == nil {
+				t.Fatalf("expected an error, got fields %v", fields)
+			}
+
+			want := fmt.Sprintf("duplicate value for '%s' field: declared again on line %d, first declared on line %d",
+				tt.wantField, tt.wantRepeat, tt.wantFirst)
+			if err.Error() != want {
+				t.Errorf("error = %q, want %q", err, want)
+			}
+		})
+	}
+}
+
+// TestParseControlFileContinuationLines tests that a continuation line which
+// looks like a field declaration stays part of the preceding value. dpkg only
+// treats a line as a new field when it does not begin with whitespace.
+func TestParseControlFileContinuationLines(t *testing.T) {
+	control := `Package: chiron
+Homepage: https://example.com/a
+Description: synopsis
+ See https://example.com/bug for details.
+ Maintainer: not a real field
+`
+
+	fields, err := parseControlFile([]byte(control))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := fields["Homepage"]; got != "https://example.com/a" {
+		t.Errorf("Homepage = %q, want %q", got, "https://example.com/a")
+	}
+
+	want := "synopsis\nSee https://example.com/bug for details.\nMaintainer: not a real field"
+	if got := fields["Description"]; got != want {
+		t.Errorf("Description = %q, want %q", got, want)
+	}
+
+	if _, ok := fields["Maintainer"]; ok {
+		t.Error("continuation line must not become its own field")
 	}
 }
