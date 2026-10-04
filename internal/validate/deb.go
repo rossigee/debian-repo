@@ -200,12 +200,20 @@ func parseControlFile(data []byte) (map[string]string, error) {
 	// We'll use a simpler line-by-line parser since the library API is complex
 
 	fields := make(map[string]string)
+	// seen maps a lower-cased field name to the 1-based line it was declared
+	// on. dpkg matches field names case-insensitively and refuses a stanza
+	// that declares the same name twice ("duplicate value for 'Description'
+	// field", "duplicate value for user-defined field 'Homepage'"), so a .deb
+	// that dpkg will reject must be rejected here too rather than ingested
+	// with the last value winning and re-rendered as a clean single-field
+	// stanza in Packages.
+	seen := make(map[string]int)
 	lines := strings.Split(string(data), "\n")
 
 	var currentKey string
 	var currentValue strings.Builder
 
-	for _, line := range lines {
+	for i, line := range lines {
 		if len(line) == 0 {
 			// End of paragraph
 			if currentKey != "" {
@@ -226,7 +234,12 @@ func parseControlFile(data []byte) (map[string]string, error) {
 
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 {
-				currentKey = strings.TrimSpace(parts[0])
+				key := strings.TrimSpace(parts[0])
+				if first, dup := seen[strings.ToLower(key)]; dup {
+					return nil, fmt.Errorf("duplicate value for '%s' field: declared again on line %d, first declared on line %d", key, i+1, first)
+				}
+				seen[strings.ToLower(key)] = i + 1
+				currentKey = key
 				currentValue.Reset()
 				currentValue.WriteString(strings.TrimSpace(parts[1]))
 			}
