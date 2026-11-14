@@ -1,183 +1,116 @@
 # Template System
 
-Modern, modular template system for debian-repo HTML pages.
+HTML pages for debian-repo, rendered server-side from embedded templates and
+static assets.
 
-## Architecture
-
-Templates are organized into logical directories:
-
-### Directory Structure
+## Layout
 
 ```
 internal/templates/
-├── components/         # Reusable HTML components
-│   ├── navbar.html     # Navigation bar with burger menu
-│   └── theme-toggle.html # Light/dark theme toggle button
-├── pages/              # Full page templates
-│   ├── index-cards.html # Repository index (card grid)
-│   ├── install.html    # Installation instructions
-│   └── gpgkey.html     # GPG key information
-├── static/             # CSS and JavaScript files
-│   ├── common.css      # Theme variables and global styles
-│   ├── navbar.css      # Navigation styling
-│   ├── index.css       # Index page styles
-│   ├── install.css     # Install page styles
-│   ├── gpgkey.css      # GPG key page styles
-│   ├── theme.js        # Theme toggle logic
-│   └── navbar.js       # Mobile burger menu logic
-├── loader.go           # Template loading and rendering
-└── types.go            # Data structures for template context
+├── components/              # Named template fragments included in pages
+│   ├── navbar.html          # {{define "navbar"}}: navigation bar and burger menu
+│   ├── theme-toggle.html    # {{define "theme-toggle"}}: light/dark toggle button
+│   └── user-menu.html       # {{define "user-menu"}}: login/profile menu
+├── pages/                   # One complete HTML document per page
+│   ├── index-cards.html     # Repository index (card grid, suite tabs)
+│   ├── install.html         # Installation instructions
+│   ├── gpgkey.html          # GPG key information
+│   ├── package-detail.html  # Package detail page
+│   └── profile.html         # User profile (requires login)
+├── static/                  # CSS, JavaScript and other static files
+│   ├── common.css           # Theme variables (colours, shadows) and global styles
+│   ├── navbar.css           # Navigation bar, burger menu
+│   ├── cards.css            # Card index page
+│   ├── install.css          # Installation page
+│   ├── gpgkey.css           # GPG key page
+│   ├── package-detail.css   # Package detail page
+│   ├── profile.css          # Profile page
+│   ├── user-menu.css        # User menu
+│   ├── theme.js             # Theme toggle
+│   ├── navbar.js            # Burger menu
+│   ├── user-menu.js         # User menu behaviour
+│   ├── favicon.svg
+│   └── robots.txt
+├── loader.go                # Parsing, caching and rendering of pages
+├── types.go                 # Data structures passed to the templates
+└── README.md
 ```
+
+## Embedding
+
+The `//go:embed components/*.html pages/*.html static/*` directive in
+`loader.go` embeds every page, component and static file into the binary. No
+template or asset files are needed at runtime.
+
+Static files are served from the embedded filesystem by the `/static/` route
+(`handleStatic` in `internal/apiserver`).
+
+Templates are parsed once and cached in memory.
 
 ## Design System
 
-### CSS Organization
+### CSS
 
-**Theme Variables** (common.css):
-- Color palette: light/dark mode support
-- Spacing scale
-- Typography scale
-- Shadows and transitions
+`common.css` defines the theme variables: text colours, and shadows
+(`--shadow-sm`, `--shadow-md`). Each page's stylesheet is listed in the layout
+above. Pages share `common.css` and `navbar.css`.
 
-**Component Styles**:
-- `navbar.css` - Navigation bar, burger menu, theme toggle
-- `index.css` - Package listing, distribution sections
-- `install.css` - Key info boxes, instruction blocks
-- `gpgkey.css` - Key details, UID display
+### Light and dark mode
 
-### Light/Dark Mode
+The theme is chosen in this order:
 
-Theme is managed through:
-1. CSS variables with system preference detection
-2. localStorage for persistent user preference
-3. `data-theme` attribute on `<html>` element
-  - `light` - Forces light mode
-  - `dark` - Forces dark mode
-  - No attribute - Uses system preference
+1. The `data-theme` attribute on `<html>`: `light` or `dark` forces that theme.
+2. Otherwise the system preference applies (CSS `prefers-color-scheme`).
 
-## Template Usage
+`theme.js` sets `data-theme` from the user's toggle choice. The choice is kept
+in `localStorage`.
 
-### Components
+## Rendering
 
-Components are reusable template fragments included in pages:
-
-```html
-{{template "components/navbar" .}}
-{{template "components/theme-toggle" .}}
-```
-
-Components expect a context with:
-- `CurrentPage` - Current page identifier (index, install, gpg)
-- `NavItems` - Map of page names to URLs
-
-### Pages
-
-Each page is a complete HTML document. Render via the Loader:
+Components and pages are rendered through the `Loader`:
 
 ```go
 loader := templates.NewLoader()
 
-// Render the index page
-html, err := loader.RenderIndexCards(&CardIndexPageData{
-	TotalPackages: 42,
-	Suites:        [...],
+html, err := loader.RenderCardIndex(&templates.CardIndexPageData{ /* ... */ })
+html, err := loader.RenderInstall(&templates.InstallPageData{
+    RepositoryURL:  "https://debs.example.com/stable",
+    KeyID:          "0x1234...",
+    KeyFingerprint: "...",
+    Suite:          "stable",
 })
-
-// Render install page
-html, err := loader.RenderInstall(&InstallPageData{
-  RepositoryURL: "https://debs.example.com",
-  KeyID: "0x1234...",
-})
-
-// Render GPG key page
-html, err := loader.RenderGPGKey(&GPGKeyPageData{
-  KeyFingerprint: "...",
-  PublicKeyBlock: "...",
-})
+html, err := loader.RenderGPGKey(&templates.GPGKeyPageData{ /* ... */ })
+html, err := loader.RenderPackageDetail(&templates.PackageDetailPageData{ /* ... */ })
+html, err := loader.RenderProfile(&templates.UserProfilePageData{ /* ... */ })
 ```
 
-## Development
+Every page embeds `PageData`, which holds the title, the current page, the
+navbar links (`NavItems`) and the authentication state. If a handler does not
+set `NavItems`, the render method fills in the default links.
 
-### Adding a New Page
+Components are included with `{{template "navbar" .}}`, `{{template "theme-toggle" .}}`
+or `{{template "user-menu" .}}`. A component reads the same page data as the
+page that includes it, so `CurrentPage` and `NavItems` must be set.
 
-1. **Create template** in `pages/pagename.html`:
-   ```html
-   {{define "pages/pagename.html"}}<!DOCTYPE html>
-   <html>
-   <head>
-     <meta charset="UTF-8">
-     <title>{{ .Title }}</title>
-     <link rel="stylesheet" href="/static/common.css">
-     <link rel="stylesheet" href="/static/navbar.css">
-     <link rel="stylesheet" href="/static/pagename.css">
-   </head>
-   <body>
-   {{template "components/navbar" .}}
-   <header>
-   {{template "components/theme-toggle" .}}
-   <h1>{{ .PageHeader }}</h1>
-   </header>
-   <main>
-   {{ .Content }}
-   </main>
-   <footer>...</footer>
-   </body>
-   </html>
-   {{end}}
-   ```
+## Adding a page
 
-2. **Create data structure** in `types.go`:
-   ```go
-   type PageNamePageData struct {
-     PageData
-     Field1 string
-     Field2 []Item
-   }
-   ```
+1. Create `pages/<name>.html` with `{{define "pages/<name>.html"}}` around the
+   document, as the existing pages do. It is embedded automatically.
+2. Add a data struct to `types.go` that embeds `PageData`.
+3. Add a `Render<Name>` method to `loader.go` that sets the defaults and
+   executes the template.
+4. Add `static/<name>.css` if the page needs styles. It is embedded and served
+   automatically.
 
-3. **Add render method** to `loader.go`:
-   ```go
-   func (l *Loader) RenderPageName(data *PageNamePageData) (string, error) {
-     if data.NavItems == nil {
-       data.NavItems = defaultNavItems()
-     }
-     data.CurrentPage = "pagename"
-     // ... rendering logic
-   }
-   ```
+## Adding a component
 
-4. **Create styles** in `static/pagename.css` if needed
+1. Create `components/<name>.html` with `{{define "<name>"}}`.
+2. Document the expected context in an HTML comment at the top of the file.
+3. Include it in pages with `{{template "<name>" .}}`.
 
-5. **Register the pattern** in the embed directive if not already covered
+## Styling guide
 
-### Adding a New Component
-
-1. **Create template** in `components/name.html`
-2. **Document expected context** in component's HTML comments
-3. Reference in pages via `{{template "components/name" .}}`
-
-### Styling Guide
-
-- Use CSS variables for colors, spacing, shadows
-- Ensure responsive design (768px breakpoint for mobile)
-- Support both light and dark themes via `:root[data-theme]`
-- Use semantic class names (`.pkg-name`, `.nav-item`, etc.)
-- Keep styles scoped to their components
-
-## Embedding
-
-Templates are embedded at build time using Go's `embed` package. No external files required at runtime.
-
-The `//go:embed` directive in `loader.go` includes:
-- `layout/*.html`
-- `components/*.html`
-- `pages/*.html`
-
-CSS and JS files are served via HTTP routes and are not embedded (served from filesystem).
-
-## Performance Considerations
-
-- Templates are parsed once and cached in memory
-- Component includes are resolved at parse time
-- No runtime template recompilation
-- Suitable for high-concurrency serving
+- Use the theme variables in `common.css` for colours and shadows.
+- Support both themes through `:root[data-theme]` as well as the system preference.
+- Keep the mobile layout working: the navbar switches to a burger menu below 768px.
+- Use semantic class names, and keep each stylesheet to the component it styles.
