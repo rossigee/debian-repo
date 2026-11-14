@@ -112,7 +112,7 @@ func attributionByFilename(idx *model.Index) map[string][]string {
 // onProgress is called with (examined, total) for each object processed, or nil if progress updates are not needed
 func (r *Reconciler) Reconcile(ctx context.Context, onProgress ProgressFunc) (*model.Index, []Discrepancy, error) {
 	newIndex := model.NewIndex()
-	newMgr := index.NewManager()
+	newMgr := index.NewManagerWithMetadata(r.indexMgr.Metadata())
 	newMgr.SetIndex(newIndex)
 
 	// Snapshot current suite attribution before scanning: files already

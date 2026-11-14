@@ -32,15 +32,53 @@ type Manager struct {
 	mu  sync.RWMutex
 	idx *model.Index
 
+	// meta is the owning repository's identity, written into every
+	// distribution. It is never a constant: each repository supplies its own.
+	meta Metadata
+
 	// Per-distribution rendered artifacts, swapped atomically
 	rendered map[string]*atomic.Pointer[model.RenderedDist]
 }
 
-// NewManager creates a fresh index manager
+// Metadata is the repository identity stamped onto each distribution and
+// persisted in its snapshot.
+type Metadata struct {
+	Origin      string
+	Label       string
+	Description string
+}
+
+// NewManager creates a fresh index manager with no repository metadata.
 func NewManager() *Manager {
+	return NewManagerWithMetadata(Metadata{})
+}
+
+// NewManagerWithMetadata creates a fresh index manager for a repository with
+// the given identity.
+func NewManagerWithMetadata(meta Metadata) *Manager {
 	return &Manager{
 		idx:      model.NewIndex(),
+		meta:     meta,
 		rendered: make(map[string]*atomic.Pointer[model.RenderedDist]),
+	}
+}
+
+// Metadata returns the repository identity this manager stamps onto distributions.
+func (m *Manager) Metadata() Metadata {
+	return m.meta
+}
+
+// stampMetadata sets every distribution's identity to this repository's. A
+// snapshot written before identities were stamped, or by another repository,
+// carries values that are not this repository's; they are corrected on load
+// and so persisted correctly on the next snapshot write.
+func (m *Manager) stampMetadata(idx *model.Index) {
+	for _, dist := range idx.Distributions {
+		dist.Mu.Lock()
+		dist.Origin = m.meta.Origin
+		dist.Label = m.meta.Label
+		dist.Description = m.meta.Description
+		dist.Mu.Unlock()
 	}
 }
 
@@ -48,6 +86,7 @@ func NewManager() *Manager {
 func (m *Manager) Load(idx *model.Index) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.stampMetadata(idx)
 	m.idx = idx
 	m.rendered = make(map[string]*atomic.Pointer[model.RenderedDist])
 	for suite := range idx.Distributions {
@@ -143,7 +182,7 @@ func (m *Manager) GetIndex() *model.Index {
 // This is the primary mutation point, and it handles atomic rendering
 func (m *Manager) AddPackageVersion(suite, component, pkgName string, ver *model.PackageVersion) error {
 	// Get or create distribution
-	dist := m.GetOrCreateDistribution(suite, suite, "myorgname.com", "golder.tech Debian Repository", "")
+	dist := m.GetOrCreateDistribution(suite, suite, m.meta.Origin, m.meta.Label, m.meta.Description)
 
 	dist.Mu.Lock()
 	defer dist.Mu.Unlock()
@@ -332,6 +371,7 @@ func (m *Manager) ToSnapshot(generatedBy string) *model.SnapshotV1 {
 func (m *Manager) SetIndex(idx *model.Index) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.stampMetadata(idx)
 	m.idx = idx
 	m.rendered = make(map[string]*atomic.Pointer[model.RenderedDist])
 	for suite := range idx.Distributions {
