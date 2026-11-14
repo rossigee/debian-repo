@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
 	"sync"
 	"time"
 
@@ -184,46 +183,22 @@ func renderDistributions(ctx context.Context, rp *Repo) {
 			continue
 		}
 
-		packagesByArch, packagesGzByArch := renderPackages(rp, dist)
+		packagesByKey, packagesGzByKey, err := aptmeta.RenderAllPackages(dist)
+		if err != nil {
+			slog.Warn("failed to render some packages", "repo_id", rp.ID, "suite", suite, "error", err)
+		}
 
 		rendered := &model.RenderedDist{
-			Suite:            suite,
-			ReleasePlain:     releaseData,
-			ReleaseGPG:       releaseGPG,
-			InRelease:        inRelease,
-			PackagesByArch:   packagesByArch,
-			PackagesGzByArch: packagesGzByArch,
-			RenderedAt:       time.Now(),
+			Suite:           suite,
+			ReleasePlain:    releaseData,
+			ReleaseGPG:      releaseGPG,
+			InRelease:       inRelease,
+			PackagesByKey:   packagesByKey,
+			PackagesGzByKey: packagesGzByKey,
+			RenderedAt:      time.Now(),
 		}
 		if err := rp.IndexMgr.SetRenderedDist(suite, rendered); err != nil {
 			slog.Warn("failed to set rendered distribution", "repo_id", rp.ID, "suite", suite, "error", err)
 		}
 	}
-}
-
-// renderPackages renders Packages for each architecture of a distribution, using
-// the first component in sorted order.
-func renderPackages(rp *Repo, dist *model.Distribution) (byArch, gzByArch map[string][]byte) {
-	components := make([]string, 0, len(dist.Components))
-	for compName := range dist.Components {
-		components = append(components, compName)
-	}
-	sort.Strings(components)
-	if len(components) == 0 {
-		return nil, nil
-	}
-	compName := components[0]
-
-	byArch = make(map[string][]byte)
-	gzByArch = make(map[string][]byte)
-	for _, arch := range dist.Architectures {
-		uncompressed, compressed, err := aptmeta.RenderPackages(dist, compName, arch)
-		if err != nil {
-			slog.Warn("failed to render packages", "repo_id", rp.ID, "suite", dist.Suite, "component", compName, "arch", arch, "error", err)
-			continue
-		}
-		byArch[arch] = uncompressed
-		gzByArch[arch] = compressed
-	}
-	return byArch, gzByArch
 }

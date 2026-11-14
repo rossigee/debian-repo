@@ -121,14 +121,21 @@ func NewPackage(name string) *Package {
 	}
 }
 
+// PackagesKey identifies one rendered Packages file: a component and an
+// architecture. Release advertises a Packages file for every such pair.
+type PackagesKey struct {
+	Component string
+	Arch      string
+}
+
 // RenderedDist is an atomic snapshot of all rendered artifacts for a distribution
 // This is what GET handlers read, never blocking on writes
 type RenderedDist struct {
-	Suite            string
-	ReleasePlain     []byte
-	ReleaseGPG       []byte
-	InRelease        []byte
-	PackagesByArch   map[string][]byte // arch -> Packages bytes
-	PackagesGzByArch map[string][]byte // arch -> Packages.gz bytes
-	RenderedAt       time.Time
+	Suite           string
+	ReleasePlain    []byte
+	ReleaseGPG      []byte
+	InRelease       []byte
+	PackagesByKey   map[PackagesKey][]byte // (component, arch) -> Packages bytes
+	PackagesGzByKey map[PackagesKey][]byte // (component, arch) -> Packages.gz bytes
+	RenderedAt      time.Time
 }

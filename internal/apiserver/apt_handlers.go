@@ -85,7 +85,10 @@ func (s *Server) handleDists(w http.ResponseWriter, r *http.Request) {
 
 	// Handle Packages files: /dists/{suite}/{component}/binary-{arch}/Packages(.gz)
 	if len(parts) >= 4 && strings.HasPrefix(parts[2], "binary-") {
-		arch := strings.TrimPrefix(parts[2], "binary-")
+		key := model.PackagesKey{
+			Component: parts[1],
+			Arch:      strings.TrimPrefix(parts[2], "binary-"),
+		}
 
 		// Serve cached Packages (always in sync with Release)
 		rendered := rp.IndexMgr.GetRenderedDist(suite)
@@ -99,7 +102,7 @@ func (s *Server) handleDists(w http.ResponseWriter, r *http.Request) {
 				// Packages.gz
 				w.Header().Set("Content-Type", "application/gzip")
 				w.Header().Set("Content-Encoding", "gzip")
-				if data, ok := rendered.PackagesGzByArch[arch]; ok {
+				if data, ok := rendered.PackagesGzByKey[key]; ok {
 					_, _ = w.Write(data)
 				} else {
 					http.NotFound(w, r)
@@ -107,7 +110,7 @@ func (s *Server) handleDists(w http.ResponseWriter, r *http.Request) {
 			} else {
 				// Uncompressed Packages
 				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				if data, ok := rendered.PackagesByArch[arch]; ok {
+				if data, ok := rendered.PackagesByKey[key]; ok {
 					_, _ = w.Write(data)
 				} else {
 					http.NotFound(w, r)
