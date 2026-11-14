@@ -73,25 +73,30 @@ func main() {
 	}
 	slog.Info("resolved repos", "count", len(resolvedRepos))
 
-	// Create a base MinIO client (shared SDK connection, deduped by endpoint)
-	// For now, use the first repo's settings; TODO: dedupe by (endpoint, accessKey) if multiple repos have different endpoints
 	if len(resolvedRepos) == 0 {
 		slog.Error("no repos configured")
 		os.Exit(1)
 	}
-	firstRepo := resolvedRepos[0]
-	baseMinioClient, err := minio.NewBaseClient(minio.BaseClientConfig{
-		Endpoint:   firstRepo.Endpoint,
-		AccessKey:  firstRepo.AccessKey,
-		SecretKey:  firstRepo.SecretKey,
-		UseTLS:     firstRepo.UseTLS,
-		CACertPath: firstRepo.CACert,
-	})
-	if err != nil {
-		slog.Error("failed to create base MinIO client", "error", err)
-		os.Exit(1)
+
+	// Each repository is scoped from the base client for its own storage
+	// connection. Repositories with identical connection settings share one.
+	basePool := minio.NewBaseClientPool()
+	baseClientFor := func(rc config.ResolvedRepo) (*minio.Client, error) {
+		client, created, err := basePool.Get(minio.BaseClientConfig{
+			Endpoint:   rc.Endpoint,
+			AccessKey:  rc.AccessKey,
+			SecretKey:  rc.SecretKey,
+			UseTLS:     rc.UseTLS,
+			CACertPath: rc.CACert,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if created {
+			slog.Info("created base MinIO client", "endpoint", rc.Endpoint, "repo_id", rc.ID)
+		}
+		return client, nil
 	}
-	slog.Info("created base MinIO client", "endpoint", firstRepo.Endpoint)
 
 	// Create default signer (used by all repos unless overridden)
 	passphrase := os.Getenv("GPG_PASSPHRASE")
@@ -105,7 +110,12 @@ func main() {
 	// Build per-repo objects
 	repos := make([]*repo.Repo, 0, len(resolvedRepos))
 	for _, rc := range resolvedRepos {
-		rp, err := repo.BuildRepo(rc, baseMinioClient, defaultSigner, "https")
+		base, err := baseClientFor(rc)
+		if err != nil {
+			slog.Error("failed to create base MinIO client", "repo_id", rc.ID, "error", err)
+			os.Exit(1)
+		}
+		rp, err := repo.BuildRepo(rc, base, defaultSigner, "https")
 		if err != nil {
 			slog.Error("failed to build repo", "repo_id", rc.ID, "error", err)
 			os.Exit(1)
@@ -128,8 +138,9 @@ func main() {
 	}
 
 	// Load apt users from MinIO (shared across all repos, scoped to first repo's bucket/prefix)
-	// NOTE: must use a bucket-scoped client (repos[0].MinioClient), not the unscoped baseMinioClient,
-	// otherwise every Get/Put fails with "Bucket name cannot be empty".
+	// The apt-user store lives in the first repository's bucket and prefix and
+	// is shared by all repositories. It must use that bucket-scoped client, not
+	// an unscoped base client, or every Get/Put fails with "Bucket name cannot be empty".
 	aptUserMinioStore := minio.NewAptUserStore(repos[0].MinioClient, cfg.Auth.AptUsers.StoreKey)
 	aptStore := aptauth.NewStore()
 	if err := aptStore.ReloadFrom(context.Background(), aptUserMinioStore); err != nil {
