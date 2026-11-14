@@ -128,13 +128,14 @@ func TestHydrateRendersMetadataFromSnapshot(t *testing.T) {
 	}
 
 	for _, arch := range []string{"amd64", "arm64"} {
-		if len(rendered.PackagesByArch[arch]) == 0 {
+		key := model.PackagesKey{Component: "main", Arch: arch}
+		if len(rendered.PackagesByKey[key]) == 0 {
 			t.Errorf("PackagesByArch[%s] is empty", arch)
 		}
-		if len(rendered.PackagesGzByArch[arch]) == 0 {
+		if len(rendered.PackagesGzByKey[key]) == 0 {
 			t.Errorf("PackagesGzByArch[%s] is empty", arch)
 		}
-		if !bytes.Contains(rendered.PackagesByArch[arch], []byte("Package: test-pkg")) {
+		if !bytes.Contains(rendered.PackagesByKey[key], []byte("Package: test-pkg")) {
 			t.Errorf("PackagesByArch[%s] missing package stanza", arch)
 		}
 	}
@@ -308,7 +309,7 @@ func TestHydrateRendersEverySuite(t *testing.T) {
 			t.Errorf("InRelease empty for %s", suite)
 		}
 		if !strings.Contains(string(rendered.ReleasePlain), "test-pkg") &&
-			!strings.Contains(string(rendered.PackagesByArch["amd64"]), "test-pkg") {
+			!strings.Contains(string(rendered.PackagesByKey[model.PackagesKey{Component: "main", Arch: "amd64"}]), "test-pkg") {
 			t.Errorf("suite %s does not reference test-pkg", suite)
 		}
 	}

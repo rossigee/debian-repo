@@ -74,14 +74,17 @@ func TestPackagesPathParsing(t *testing.T) {
 
 	// Create and set rendered distribution
 	rendered := &model.RenderedDist{
-		Suite:          "stable",
-		ReleasePlain:   []byte("Origin: test\n"),
-		ReleaseGPG:     []byte("-----BEGIN PGP-----\n"),
-		InRelease:      []byte("-----BEGIN PGP SIGNED MESSAGE-----\n"),
-		PackagesByArch: map[string][]byte{"amd64": uncompressedData, "arm64": uncompressedData},
-		PackagesGzByArch: map[string][]byte{
-			"amd64": compressedData,
-			"arm64": compressedData,
+		Suite:        "stable",
+		ReleasePlain: []byte("Origin: test\n"),
+		ReleaseGPG:   []byte("-----BEGIN PGP-----\n"),
+		InRelease:    []byte("-----BEGIN PGP SIGNED MESSAGE-----\n"),
+		PackagesByKey: map[model.PackagesKey][]byte{
+			{Component: "main", Arch: "amd64"}: uncompressedData,
+			{Component: "main", Arch: "arm64"}: uncompressedData,
+		},
+		PackagesGzByKey: map[model.PackagesKey][]byte{
+			{Component: "main", Arch: "amd64"}: compressedData,
+			{Component: "main", Arch: "arm64"}: compressedData,
 		},
 	}
 	mgr.SetRenderedDist("stable", rendered)
@@ -201,10 +204,10 @@ func TestPackagesPathEdgeCases(t *testing.T) {
 	}
 
 	rendered := &model.RenderedDist{
-		Suite:            "stable",
-		ReleasePlain:     []byte("Origin: test\n"),
-		PackagesByArch:   map[string][]byte{"amd64": []byte("test")},
-		PackagesGzByArch: map[string][]byte{"amd64": []byte("gztest")},
+		Suite:           "stable",
+		ReleasePlain:    []byte("Origin: test\n"),
+		PackagesByKey:   map[model.PackagesKey][]byte{{Component: "main", Arch: "amd64"}: []byte("test")},
+		PackagesGzByKey: map[model.PackagesKey][]byte{{Component: "main", Arch: "amd64"}: []byte("gztest")},
 	}
 	mgr.SetRenderedDist("stable", rendered)
 

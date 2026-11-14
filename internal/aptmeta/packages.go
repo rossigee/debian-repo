@@ -4,6 +4,7 @@ package aptmeta
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -137,20 +138,35 @@ func RenderPackages(dist *model.Distribution, component, arch string) (uncompres
 	return uncompressed, compressed, nil
 }
 
-// RenderPackagesFromIndex generates all Packages files for a distribution
-// Returns a map of "binary-{arch}" -> Packages bytes
-func RenderPackagesFromIndex(dist *model.Distribution) (map[string][]byte, error) {
-	result := make(map[string][]byte)
-
-	for _, arch := range dist.Architectures {
-		uncompressed, _, err := RenderPackages(dist, "main", arch)
-		if err != nil {
-			return nil, err
+// RenderAllPackages renders Packages and Packages.gz for every (component,
+// architecture) pair of a distribution. Release lists all of them, so each one
+// must be rendered and served. Pairs that fail to render are left out and
+// reported in the returned error; the maps still hold every pair that succeeded.
+func RenderAllPackages(dist *model.Distribution) (packages, gz map[model.PackagesKey][]byte, err error) {
+	// Snapshot the key set under the read lock. RenderPackages takes the lock
+	// itself, so it must not be called while the lock is held here.
+	dist.Mu.RLock()
+	keys := make([]model.PackagesKey, 0, len(dist.Components)*len(dist.Architectures))
+	for compName := range dist.Components {
+		for _, arch := range dist.Architectures {
+			keys = append(keys, model.PackagesKey{Component: compName, Arch: arch})
 		}
-		result[fmt.Sprintf("binary-%s", arch)] = uncompressed
 	}
+	dist.Mu.RUnlock()
 
-	return result, nil
+	packages = make(map[model.PackagesKey][]byte, len(keys))
+	gz = make(map[model.PackagesKey][]byte, len(keys))
+	var errs []error
+	for _, key := range keys {
+		uncompressed, compressed, renderErr := RenderPackages(dist, key.Component, key.Arch)
+		if renderErr != nil {
+			errs = append(errs, fmt.Errorf("%s/binary-%s: %w", key.Component, key.Arch, renderErr))
+			continue
+		}
+		packages[key] = uncompressed
+		gz[key] = compressed
+	}
+	return packages, gz, errors.Join(errs...)
 }
 
 // ExtractFieldsFromPackagesFile parses an uncompressed Packages file

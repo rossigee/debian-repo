@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -367,46 +366,21 @@ func (s *Server) renderAndStoreDistribution(suite string, dist *model.Distributi
 		return
 	}
 
-	// Render Packages for all architectures (use first component only)
-	packagesByArch := make(map[string][]byte)
-	packagesGzByArch := make(map[string][]byte)
-
-	// Snapshot component/architecture lists under the dist read lock.
-	// The Render* helpers lock internally, but enumerating the maps and
-	// slice here without the lock races with concurrent mutations.
-	dist.Mu.RLock()
-	components := make([]string, 0, len(dist.Components))
-	for compName := range dist.Components {
-		components = append(components, compName)
-	}
-	sort.Strings(components)
-	archs := make([]string, len(dist.Architectures))
-	copy(archs, dist.Architectures)
-	dist.Mu.RUnlock()
-
-	for _, arch := range archs {
-		if len(components) == 0 {
-			continue
-		}
-		compName := components[0] // Always use first component (sorted)
-		uncompressed, compressed, err := aptmeta.RenderPackages(dist, compName, arch)
-		if err != nil {
-			slog.Warn("failed to render packages", "suite", suite, "component", compName, "arch", arch, "error", err)
-			continue
-		}
-		packagesByArch[arch] = uncompressed
-		packagesGzByArch[arch] = compressed
+	// Render Packages for every component and architecture: Release lists them all
+	packagesByKey, packagesGzByKey, err := aptmeta.RenderAllPackages(dist)
+	if err != nil {
+		slog.Warn("failed to render some packages", "suite", suite, "error", err)
 	}
 
 	// Store rendered distribution
 	rendered := &model.RenderedDist{
-		Suite:            suite,
-		ReleasePlain:     releaseData,
-		ReleaseGPG:       releaseGPG,
-		InRelease:        inRelease,
-		PackagesByArch:   packagesByArch,
-		PackagesGzByArch: packagesGzByArch,
-		RenderedAt:       time.Now(),
+		Suite:           suite,
+		ReleasePlain:    releaseData,
+		ReleaseGPG:      releaseGPG,
+		InRelease:       inRelease,
+		PackagesByKey:   packagesByKey,
+		PackagesGzByKey: packagesGzByKey,
+		RenderedAt:      time.Now(),
 	}
 
 	if err := rp.IndexMgr.SetRenderedDist(suite, rendered); err != nil {
