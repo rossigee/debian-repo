@@ -258,20 +258,13 @@ func repoContext(ctx context.Context, rp *repo.Repo) context.Context {
 	return context.WithValue(ctx, repoContextKey{}, rp)
 }
 
-// currentRepo retrieves the repo from the request context
-// For Phase 1, always returns the repo (should only be one)
-// In Phase 2, will use this to route to the correct repo
+// currentRepo returns the repository the route registration attached to this
+// request, or nil if there is none. It never falls back to another repository:
+// a repo-scoped handler reached without one must answer 404, not serve the
+// content of whichever repository happens to be first.
 func (s *Server) currentRepo(r *http.Request) *repo.Repo {
-	rp, ok := r.Context().Value(repoContextKey{}).(*repo.Repo)
-	if ok && rp != nil {
-		return rp
-	}
-	// Fallback: return the first repo (should only be one in Phase 1)
-	repos := s.registry.All()
-	if len(repos) > 0 {
-		return repos[0]
-	}
-	return nil
+	rp, _ := r.Context().Value(repoContextKey{}).(*repo.Repo)
+	return rp
 }
 
 // constantTimeTokenLookup performs a constant-time comparison against all configured tokens
@@ -291,12 +284,19 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintf(w, "OK\n")
 }
 
-// handleReadyz returns 200 once the repository's snapshot is loaded and its
-// metadata rendered, and 503 with Retry-After until then. Liveness is
-// /healthz, which stays 200 as soon as the process is up.
-func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	rp := s.currentRepo(r)
-	if rp == nil || !rp.Hydrated() {
+// handleReadyz returns 200 once every configured repository's snapshot is
+// loaded and its metadata rendered, and 503 with Retry-After until then.
+// Liveness is /healthz, which stays 200 as soon as the process is up.
+func (s *Server) handleReadyz(w http.ResponseWriter, _ *http.Request) {
+	repos := s.registry.All()
+	ready := len(repos) > 0
+	for _, rp := range repos {
+		if !rp.Hydrated() {
+			ready = false
+			break
+		}
+	}
+	if !ready {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "repository metadata is still loading", http.StatusServiceUnavailable)
 		return

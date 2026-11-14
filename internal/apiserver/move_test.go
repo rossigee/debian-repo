@@ -53,7 +53,7 @@ func doMove(t *testing.T, s *Server, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest("POST", "/api/v1/admin/move", strings.NewReader(body))
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
-	s.handleMovePackages(rec, req)
+	s.handleMovePackages(rec, withTestRepo(req, s.registry.All()[0]))
 	return rec
 }
 
@@ -183,7 +183,7 @@ func TestHandleMoveForbidden(t *testing.T) {
 		strings.NewReader(`{"from_suite":"stable","to_suite":"libvirtd","packages":["libvirtd*"]}`))
 	req.Header.Set("X-CI-Identity", "nobody")
 	rec := httptest.NewRecorder()
-	s.handleMovePackages(rec, req)
+	s.handleMovePackages(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
@@ -208,7 +208,7 @@ func TestHandleInstallSuiteParam(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/install.html?suite=libvirtd", nil)
 	rec := httptest.NewRecorder()
-	s.handleInstall(rec, req)
+	s.handleInstall(rec, withTestRepo(req, s.registry.All()[0]))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -222,7 +222,7 @@ func TestHandleInstallSuiteParam(t *testing.T) {
 	// Default stays stable.
 	req = httptest.NewRequest("GET", "/install.html", nil)
 	rec = httptest.NewRecorder()
-	s.handleInstall(rec, req)
+	s.handleInstall(rec, withTestRepo(req, s.registry.All()[0]))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Suites: stable") {
 		t.Fatalf("install page default changed: %d", rec.Code)
 	}
@@ -230,7 +230,7 @@ func TestHandleInstallSuiteParam(t *testing.T) {
 	// Path traversal rejected.
 	req = httptest.NewRequest("GET", "/install.html?suite=../x", nil)
 	rec = httptest.NewRecorder()
-	s.handleInstall(rec, req)
+	s.handleInstall(rec, withTestRepo(req, s.registry.All()[0]))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for bad suite, got %d", rec.Code)
 	}

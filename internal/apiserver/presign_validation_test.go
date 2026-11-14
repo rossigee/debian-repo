@@ -57,7 +57,7 @@ func TestHandlePresignRejectsBadFilename(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/v1/presign", strings.NewReader(body))
 		req.Header.Set("X-CI-Identity", "test")
 		rec := httptest.NewRecorder()
-		s.handlePresign(rec, req)
+		s.handlePresign(rec, withTestRepo(req, s.registry.All()[0]))
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("filename %q: expected 400, got %d: %s", filename, rec.Code, rec.Body.String())
 		}
@@ -78,7 +78,7 @@ func TestHandleRegisterRejectsBadStagingKey(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/v1/register", strings.NewReader(body))
 		req.Header.Set("X-CI-Identity", "test")
 		rec := httptest.NewRecorder()
-		s.handleRegister(rec, req)
+		s.handleRegister(rec, withTestRepo(req, s.registry.All()[0]))
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("staging_key %q: expected 400, got %d: %s", key, rec.Code, rec.Body.String())
 		}

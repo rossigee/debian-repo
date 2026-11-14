@@ -33,7 +33,7 @@ type IndexJSON struct {
 func (s *Server) handleIndexJSON(w http.ResponseWriter, r *http.Request) {
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 

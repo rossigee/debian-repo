@@ -262,7 +262,7 @@ func (s *Server) verifyFileChecksum(ctx context.Context, poolPath string, rp *re
 func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -311,7 +311,7 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGPGKeyPage(w http.ResponseWriter, r *http.Request) {
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -349,7 +349,7 @@ func (s *Server) handleGPGKeyPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePublicKey(w http.ResponseWriter, r *http.Request) {
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -403,7 +403,7 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleIndexCards(w http.ResponseWriter, r *http.Request) {
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
