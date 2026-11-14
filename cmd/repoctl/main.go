@@ -126,7 +126,7 @@ func cmdImport(args []string) {
 	}
 
 	// Create index manager
-	indexMgr := index.NewManager()
+	indexMgr := index.NewManagerWithMetadata(index.Metadata{Origin: cfg.RepoMetadata.Origin, Label: cfg.RepoMetadata.Label, Description: cfg.RepoMetadata.Description})
 
 	// Create reconciler
 	rec := reconcile.NewReconciler(minioClient, indexMgr, defaultSuiteForConfig(cfg, *suiteFlag))
@@ -218,7 +218,7 @@ func cmdReconcile(args []string) {
 	}
 
 	// Create index manager
-	indexMgr := index.NewManager()
+	indexMgr := index.NewManagerWithMetadata(index.Metadata{Origin: cfg.RepoMetadata.Origin, Label: cfg.RepoMetadata.Label, Description: cfg.RepoMetadata.Description})
 
 	// Create reconciler
 	rec := reconcile.NewReconciler(minioClient, indexMgr, defaultSuiteForConfig(cfg, *suiteFlag))

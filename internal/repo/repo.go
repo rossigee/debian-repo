@@ -91,10 +91,14 @@ func BuildRepo(rc config.ResolvedRepo, base *minio.Client, defaultSigner *gpgsig
 	repoURL := buildRepoURL(publicScheme, rc.VHost, rc.PathPrefix, defaultHost)
 
 	rp := &Repo{
-		ID:                  rc.ID,
-		VHost:               rc.VHost,
-		PathPrefix:          rc.PathPrefix,
-		IndexMgr:            index.NewManager(),
+		ID:         rc.ID,
+		VHost:      rc.VHost,
+		PathPrefix: rc.PathPrefix,
+		IndexMgr: index.NewManagerWithMetadata(index.Metadata{
+			Origin:      rc.Origin,
+			Label:       rc.Label,
+			Description: rc.Description,
+		}),
 		MinioClient:         minioClient,
 		SnapshotStore:       minio.NewSnapshotStore(minioClient, rc.SnapshotKey, minio.DefaultHistoryPrefix(rc.SnapshotKey), rc.SnapshotHistoryKeep),
 		ChecksumStore:       minio.NewChecksumSidecarStore(minioClient),
