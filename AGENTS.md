@@ -15,7 +15,7 @@
 - **Runtime configurability**: Pool serving, upload modes, and authentication are runtime flags, not compile-time choices
 - **Source-of-truth is pool contents**: The index is rebuilt from `.deb` control metadata in MinIO if the snapshot is missing or corrupted
 - **Non-blocking reads**: apt clients never block on CI uploads; GET handlers read an atomic pointer to pre-rendered artifacts
-- **Three-tier authentication**: Different consumer classes use different mechanisms (Basic Auth for apt, OIDC for browsers, bearer tokens for CI)
+- **Three-tier authentication**: Different consumer classes use different mechanisms (Basic Auth for apt, OIDC for browser login, bearer tokens for CI). Basic Auth is not yet enforced on any route; see Known Limitations.
 - **No server-side session state**: Sessions are stateless signed cookies; no Redis or external session store required
 - **Constant-time token comparison**: CI bearer tokens compared using `crypto/subtle` to prevent timing attacks
 
@@ -63,6 +63,8 @@ Supports runtime flags for:
 - **snapshotstore.go**: Atomic snapshot persistence (write to temp key, `CopyObject` to final key)
 - **aptuserstore.go**: Atomic apt-user credential persistence (HTTP Basic Auth credentials, bcrypt-hashed)
 - **checksumsidecar.go**: Checksum sidecar cache (fire-and-forget write on upload, read with ETag validation during reconcile)
+- **presigned.go**: Presigned upload URLs for presigned mode, and moving a staged object into the pool
+- **basepool.go**: `BaseClientPool` — one base client per distinct storage connection, so each repository is scoped from its own endpoint and credentials
 
 ### `internal/gpgsign`
 - **signer.go**: In-process OpenPGP signing via `go-crypto/openpgp`, no `gpg` binary
@@ -76,29 +78,39 @@ Supports runtime flags for:
 
 ### `internal/validate`
 - **deb.go**: Structural `.deb` validation — ar archive check, control member extraction, field parsing via `pault.ag/go/debian`
+- **ar.go**: Reading the `ar` archive container
 
-### `internal/htmlpages`
-- **index.go, install.go, gpgkey.go**: HTML template rendering
-- **styles.go**: Comprehensive CSS theming system (light/dark mode, responsive design, burger menu, theme toggle)
-- **navbar.go**: Navigation bar with burger menu and theme toggle button
+### `internal/templates`
+- **loader.go**: Parses and caches the embedded templates, and renders each page. Defaults the navbar links when a handler does not set them.
+- **types.go**: The page data structures (`PageData` and one struct per page)
+- **pages/*.html**: Install, GPG key, card index, package detail and profile pages
+- **components/*.html**: Navbar, theme toggle and user menu, included by the pages
+- **static/**: CSS, JavaScript and favicon. Embedded with the templates and served by `handleStatic` from `/static/`.
 
-Features:
-- CSS variables for light/dark theme with automatic system preference detection
-- Data-attribute override (`data-theme`) for persistent user preference via localStorage
-- Responsive mobile-first design with 768px breakpoint
-- Smooth transitions and hover effects throughout
-- Theme toggle button with sun/moon icons
-- Burger menu animation for mobile navigation
+Templates and static files are embedded with `//go:embed`, so the binary has no runtime file dependencies. See `internal/templates/README.md` for the design system and how to add pages.
 
-All pages are rendered on-demand with theming support. No static files.
+### `internal/repo`
+- **repo.go**: `Repo` — one repository's storage client, signer, index manager, path prefix, vhost and public URL. `Registry` holds all repositories and routes requests to them.
+- **hydrate.go**: Loads each repository's snapshot at startup and renders its metadata in the background. `/readyz` and the metadata routes answer 503 until this completes.
+- **staticconfig.go**: Repository records read from the configuration file
+- **store.go**: The repository record type and the store interface it is read through
+
+### `internal/acl`
+- **authorizer.go, types.go**: Authorization decisions for CI bearer tokens: an identity is granted operations (upload, remove, unprotect, reconcile, list-dists) on repositories, suites and components. Removing from a protected suite that would empty it needs the separate `unprotect` grant.
+- **config.go, static.go**: Building the grants from `auth.ci_tokens` configuration
 
 ### `internal/apiserver`
 - **router.go**: HTTP router setup (net/http mux) with all route registration and authentication middleware
   - Bearer token auth for CI routes (`/api/v1/*`) with constant-time comparison
-  - HTTP Basic Auth middleware for apt clients (`/dists`, `/pubkey.gpg`, `/pool`)
-  - OIDC middleware for HTML pages (wraps with session cookie validation)
-  - Metrics authentication middleware for `/metrics` endpoint
-- **apt_handlers.go**: GET routes for apt clients (metadata, pool files in proxy mode)
+  - Metrics authentication middleware (`MetricsAuthMiddleware`) for the `/metrics` endpoint
+  - OIDC session middleware on `/profile` only; the repository pages are public
+  - Apt Basic Auth (`aptauth.Middleware`) exists but is not applied to `/dists`, `/pool` or `/pubkey.gpg`
+  - Every repository-scoped route is registered once per repository, under its path prefix (`repo.RoutePattern`)
+- **apt_handlers.go**: GET routes for apt clients (metadata, pool files in proxy mode) and the HTML pages
+- **pagedata.go**: Common page data (authentication state, repository path prefix, repository host)
+- **allowlist.go**: Enforcement of the `validation.allowed_*` lists and `max_deb_size_bytes`
+- **acl.go**: `denyIfNotAuthorized`, the per-operation check for CI identities
+- **feed_handlers.go**: Atom feed of recent uploads per suite
 - **ci_handlers.go**: POST/DELETE routes for CI (upload, presign, register, remove, async reconcile)
   - `handleUpload`: Direct package upload (validates, stages, registers in one step)
   - `handlePresign`: Request presigned URL for large package uploads
@@ -108,12 +120,12 @@ All pages are rendered on-demand with theming support. No static files.
     - Removes from index and re-renders Release/Packages metadata
     - Deletes .deb file from pool storage asynchronously (non-blocking)
     - Persists updated snapshot to MinIO
-  - `handleMovePackages`: Move packages between suites without re-uploading
+  - `handleMovePackages`: Move packages between suites without re-uploading (`POST /api/v1/admin/move`)
   - `handleReconcile`: Async job submission for rebuilding index from pool (returns 202 Accepted with job ID)
   - `handleReconcileStatus`: Job status polling (returns progress and results)
   - `runReconcileJob`: Background reconciliation worker using context.Background()
 - **json_handlers.go**: JSON API endpoints (`/index.json`)
-- **health.go**: Liveness/readiness probes
+- Liveness and readiness probes (`handleHealthz`, `handleReadyz`) are in `router.go`. `/readyz` is ready only when every repository is hydrated.
 
 ### `internal/reconcile`
 - **reconcile.go**: Index reconciliation from pool contents
@@ -151,6 +163,21 @@ All pages are rendered on-demand with theming support. No static files.
   - Logs method, path, remote address, auth user, status, latency, bytes written
   - Skips logging for health checks and metrics endpoints
 
+### `internal/feed`
+- **atom.go**: Atom feed generation for a suite's recent uploads
+
+### `internal/metrics`
+- **metrics.go**: Prometheus metrics. Request and registration counters are not labelled by repository. Index-state gauges are summed across repositories by default, or labelled `repo` when `metrics.per_repo` is set.
+
+### `internal/tracing`
+- **tracer.go, http_middleware.go, operations.go**: OpenTelemetry OTLP tracing and HTTP middleware
+
+### `internal/version`
+- **version.go**: Build version information reported by `--version`
+
+### `internal/testsupport/gpgtest`
+- **key.go**: Generates a throwaway PGP key for tests. No key is committed.
+
 ### `cmd/debian-repo`
 - **main.go**: Server entrypoint with:
   - Config loading and env var substitution
@@ -167,8 +194,7 @@ All pages are rendered on-demand with theming support. No static files.
 ### `cmd/repoctl`
 - **main.go**: Operator CLI with subcommands:
   - `import [--dry-run|--apply]` — Migrate package pool from current system (scan control metadata, diff against metadata, preview/apply snapshot)
-  - `reconcile` — Rebuild index from pool contents (detects and logs discrepancies)
-  - `snapshot` — Inspect/manipulate snapshots (view, export, reload)
+  - `reconcile [--suite SUITE] [--dry-run|--apply]` — Rebuild index from pool contents (detects and logs discrepancies)
   - `users add|list|remove|passwd` — Manage HTTP Basic Auth credentials
     - `add USERNAME [--password PWD]` — Create user (interactive or scripted)
     - `passwd USERNAME [--password PWD]` — Change password
@@ -229,7 +255,7 @@ This directly fixes:
 4. **mc mirror --overwrite --remove is destructive, not atomic** → Fixed: atomic snapshot writes + staged object uploads
 5. **Only stable/main supported** → Fixed: distributions/components are dynamic
 6. **SSRF risk in webhook** → Fixed: CI uses authenticated API, not arbitrary URLs
-7. **Zero consumer authentication** → Fixed: three-tier auth (HTTP Basic for apt, OIDC for web UI, bearer tokens for CI)
+7. **Zero consumer authentication** → Partly fixed: bearer tokens guard CI routes and OIDC guards `/profile`. **Open:** apt Basic Auth is loaded (`aptauth`) but not applied to `/dists`, `/pool` or `/pubkey.gpg`, so apt metadata and pool files are public.
 8. **No authorization/audit trail** → Fixed: structured logging with correlation IDs, request tracing with user/method/status
 9. **Metrics unprotected** → Fixed: metrics endpoint requires bearer token authentication
 
@@ -237,7 +263,7 @@ This directly fixes:
 
 - **Do not hold Distribution.Mu longer than necessary** — GET handlers wait for the pointer swap and then release the lock immediately. Long-held locks will cause apt clients to stall during registrations.
 - **Do not skip validation when presigned** — CI might upload a truncated or malformed file; re-fetch and validate it before committing.
-- **Do not delete orphan pool objects immediately** — leave them for a periodic `repoctl reconcile --prune-orphans` or lifecycle rule.
+- **Do not delete orphan pool objects immediately** — orphans are retained. No `repoctl` command prunes them yet, so removing a pool object is an explicit decision, not a side effect of a removal.
 - **Pool objects are shared across suites** — pool keys are `pool/<component>/<pkg>_<ver>_<arch>.deb` with no suite segment, so one object can back the same package in several suites. Removal deletes an object only when `Manager.UnreferencedPoolKeys` reports no suite still references it (reference counting derived from the index, no separate counter). Never delete a pool object on the basis of a single suite's removal.
 - **Do not hardcode distribution names** — always accept suite/component from the request, subject to optional allowlist.
 
@@ -290,7 +316,7 @@ The API endpoint:
 - **URL**: `POST https://debs.myorgname.com/api/v1/upload?suite={suite}&component={component}`
 - **Query params**: `suite` and `component` are optional; if omitted, they default to the repository's configured defaults
 - **Auth**: Bearer token in `Authorization` header
-- **Body**: Raw `.deb` file bytes (max 512MB)
+- **Body**: Raw `.deb` file bytes (max `validation.max_deb_size_bytes`, default 512MB)
 - **Response**: JSON with registered package metadata on success
 
 **Example response (HTTP 200):**
@@ -385,6 +411,6 @@ The response is cached for 60 seconds (Cache-Control: public, max-age=60).
 - Packages rendering: `internal/aptmeta/packages.go` — compare output with current `dists/stable/.../Packages` for correctness
 - Authentication: `internal/aptauth/store.go` (HTTP Basic Auth), `internal/webauth/provider.go` (OIDC), `internal/apiserver/router.go` (bearer tokens, constant-time comparison)
 - Logging & Observability: `internal/logging/logger.go` + `middleware.go` for structured JSON logging with correlation IDs
-- CSS Theming: `internal/htmlpages/styles.go` for light/dark mode and responsive design
+- CSS Theming: `internal/templates/static/common.css` for light/dark mode and `internal/templates/README.md` for the design system
 - User Management: `cmd/repoctl/main.go` with `users add|list|remove|passwd` subcommands
 - CI integration: See `vault-tool` `.gitea/workflows/release.yaml` for an example of pushing packages to the repository
