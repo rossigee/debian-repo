@@ -643,13 +643,18 @@ func (s *Server) handleRemovePackage(w http.ResponseWriter, r *http.Request) {
 		s.renderAndStoreDistribution(suite, dist, rp)
 	}
 
+	// A pool object is shared by every suite holding the same
+	// (component, package, version, arch). Only delete objects that no suite
+	// still references, or removing from one suite breaks another's Packages.
+	orphanedPoolPaths := rp.IndexMgr.UnreferencedPoolKeys(poolPathsToDelete)
+
 	// Delete pool files and persist updated snapshot (async by default)
 	if rp.MinioClient != nil {
 		go func() {
 			ctx := context.Background()
 
 			// Delete pool files
-			for _, objKey := range poolPathsToDelete {
+			for _, objKey := range orphanedPoolPaths {
 				if err := rp.MinioClient.RemoveObject(ctx, objKey); err != nil {
 					slog.Warn("failed to delete pool file after remove", "object", objKey, "error", err)
 					// Don't fail the entire operation if one file deletion fails

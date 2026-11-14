@@ -238,6 +238,7 @@ This directly fixes:
 - **Do not hold Distribution.Mu longer than necessary** — GET handlers wait for the pointer swap and then release the lock immediately. Long-held locks will cause apt clients to stall during registrations.
 - **Do not skip validation when presigned** — CI might upload a truncated or malformed file; re-fetch and validate it before committing.
 - **Do not delete orphan pool objects immediately** — leave them for a periodic `repoctl reconcile --prune-orphans` or lifecycle rule.
+- **Pool objects are shared across suites** — pool keys are `pool/<component>/<pkg>_<ver>_<arch>.deb` with no suite segment, so one object can back the same package in several suites. Removal deletes an object only when `Manager.UnreferencedPoolKeys` reports no suite still references it (reference counting derived from the index, no separate counter). Never delete a pool object on the basis of a single suite's removal.
 - **Do not hardcode distribution names** — always accept suite/component from the request, subject to optional allowlist.
 
 ## CI Integration: Pushing Packages to the Repository

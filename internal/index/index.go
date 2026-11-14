@@ -253,6 +253,50 @@ func (m *Manager) RemovePackageVersion(suite, component, pkgName, version, archi
 	return nil
 }
 
+// CountPoolReferences returns how many package versions, across every
+// distribution in the repository, point at the pool object key. A pool object
+// is shared by each suite that holds the same (component, package, version,
+// architecture); it may only be deleted when this count is zero.
+func (m *Manager) CountPoolReferences(key string) int {
+	m.mu.RLock()
+	m.idx.Mu.RLock()
+	dists := make([]*model.Distribution, 0, len(m.idx.Distributions))
+	for _, dist := range m.idx.Distributions {
+		dists = append(dists, dist)
+	}
+	m.idx.Mu.RUnlock()
+	m.mu.RUnlock()
+
+	count := 0
+	for _, dist := range dists {
+		dist.Mu.RLock()
+		for _, comp := range dist.Components {
+			for _, pkg := range comp.Packages {
+				for _, ver := range pkg.Versions {
+					if ver.Filename == key {
+						count++
+					}
+				}
+			}
+		}
+		dist.Mu.RUnlock()
+	}
+	return count
+}
+
+// UnreferencedPoolKeys returns the subset of keys that no package version in
+// any distribution still references. Call it after removing index entries and
+// delete only the returned keys from pool storage.
+func (m *Manager) UnreferencedPoolKeys(keys []string) []string {
+	var unreferenced []string
+	for _, key := range keys {
+		if m.CountPoolReferences(key) == 0 {
+			unreferenced = append(unreferenced, key)
+		}
+	}
+	return unreferenced
+}
+
 // GetRenderedDist returns the current rendered artifacts for a distribution (non-blocking)
 // Returns nil if nothing has been rendered yet
 func (m *Manager) GetRenderedDist(suite string) *model.RenderedDist {
