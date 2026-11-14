@@ -13,6 +13,10 @@
 
 <main>
 
+{{- if not .RepositoryHost}}
+<p><strong>Note:</strong> This server has no public host configured, so the repository address is not known here. Replace <code>REPOSITORY_URL</code> and <code>REPOSITORY_HOST</code> with the repository's public address in the commands below.</p>
+{{- end}}
+
 <div class="key-info">
 <strong>GPG Key Information:</strong><br>
 Key ID: <code>{{ .KeyID }}</code><br>
@@ -80,7 +84,7 @@ sudo mkdir -p /etc/apt/auth.conf.d
 
 # Add your credentials (using the repository domain from above)
 sudo tee /etc/apt/auth.conf.d/repository.conf > /dev/null <<'EOF'
-machine debs.example.com
+machine {{ if .RepositoryHost }}{{ .RepositoryHost }}{{ else }}REPOSITORY_HOST{{ end }}
 login your-username
 password your-password
 EOF

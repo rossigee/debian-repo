@@ -15,15 +15,15 @@
 <section class="overview">
 <h2>Available Packages</h2>
 <p><strong>{{ .TotalPackages }} packages</strong> available{{if .ActiveSuite}} in suite <strong>{{ .ActiveSuite }}</strong>{{end}}</p>
-{{if .ActiveSuite}}<p><a href="/install.html?suite={{ .ActiveSuite }}" class="card-link">Install instructions for {{ .ActiveSuite }} →</a></p>{{end}}
+{{if .ActiveSuite}}<p><a href="{{ $.BasePath }}/install.html?suite={{ .ActiveSuite }}" class="card-link">Install instructions for {{ .ActiveSuite }} →</a></p>{{end}}
 <p>Last updated: {{ .LastUpdated.Format "2006-01-02 15:04 UTC" }}</p>
 {{if .Suites}}
 <nav class="suite-tabs">
   {{range .Suites}}
   {{if .Name}}
-  <a href="/?suite={{ .Name }}" class="suite-tab{{if .Active}} active{{end}}">{{ .Name }} ({{ .Count }})</a>
+  <a href="{{ $.BasePath }}/?suite={{ .Name }}" class="suite-tab{{if .Active}} active{{end}}">{{ .Name }} ({{ .Count }})</a>
   {{else}}
-  <a href="/" class="suite-tab{{if .Active}} active{{end}}">All ({{ .Count }})</a>
+  <a href="{{ $.BasePath }}/" class="suite-tab{{if .Active}} active{{end}}">All ({{ .Count }})</a>
   {{end}}
   {{end}}
 </nav>
@@ -51,7 +51,7 @@
     {{if .Suites}}
     <div class="suite-pills">
       {{range .Suites}}
-      <a href="/?suite={{ . }}" class="suite-pill">{{ . }}</a>
+      <a href="{{ $.BasePath }}/?suite={{ . }}" class="suite-pill">{{ . }}</a>
       {{end}}
     </div>
     {{end}}
@@ -68,7 +68,7 @@
   <p class="card-maintainer">Maintained by: <span class="maintainer-name">{{ .Maintainer }}</span></p>
   {{end}}
 
-  <a href="/packages/{{ .Name }}" class="card-link">View Details →</a>
+  <a href="{{ $.BasePath }}/packages/{{ .Name }}" class="card-link">View Details →</a>
 </div>
 {{end}}
 </div>
@@ -83,9 +83,9 @@
 <footer>
 <p><strong>Debian Repository</strong></p>
 <div class="footer-links">
-<a href="/">Repository</a>
-<a href="/install.html">Installation</a>
-<a href="/gpg-key.html">GPG Key</a>
+<a href="{{ $.BasePath }}/">Repository</a>
+<a href="{{ $.BasePath }}/install.html">Installation</a>
+<a href="{{ $.BasePath }}/gpg-key.html">GPG Key</a>
 <a href="https://github.com/rossigee/debian-repo">Source Code</a>
 </div>
 <p>Powered by <a href="https://github.com/rossigee/debian-repo">debian-repo</a> <code>{{ .VersionString }}</code></p>

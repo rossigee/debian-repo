@@ -52,7 +52,7 @@
     </div>
 
     <div class="action-section">
-      <a href="/" class="action-button back-button">← Back to Repository</a>
+      <a href="{{ .BasePath }}/" class="action-button back-button">← Back to Repository</a>
       <a href="/logout" class="action-button logout-button">🚪 Logout</a>
     </div>
   </div>
@@ -63,9 +63,9 @@
 <footer>
 <p><strong>Debian Repository</strong></p>
 <div class="footer-links">
-<a href="/">Repository</a>
-<a href="/install.html">Installation</a>
-<a href="/gpg-key.html">GPG Key</a>
+<a href="{{ .BasePath }}/">Repository</a>
+<a href="{{ .BasePath }}/install.html">Installation</a>
+<a href="{{ .BasePath }}/gpg-key.html">GPG Key</a>
 </div>
 <p>Powered by <a href="https://github.com/rossigee/debian-repo">debian-repo</a></p>
 </footer>

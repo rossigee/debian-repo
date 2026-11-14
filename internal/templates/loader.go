@@ -82,14 +82,19 @@ func (l *Loader) parseTemplates(pagePattern string) (*template.Template, error) 
 	return tmpl, nil
 }
 
+// NavItems returns the navbar links for a repository whose pages sit under basePath.
+func NavItems(basePath string) map[string]string {
+	return map[string]string{
+		"index":   basePath + "/",
+		"install": basePath + "/install.html",
+		"gpg":     basePath + "/gpg-key.html",
+	}
+}
+
 // RenderInstall renders the install page
 func (l *Loader) RenderInstall(data *InstallPageData) (string, error) {
 	if data.NavItems == nil {
-		data.NavItems = map[string]string{
-			"index":   "/",
-			"install": "/install.html",
-			"gpg":     "/gpg-key.html",
-		}
+		data.NavItems = NavItems(data.BasePath)
 	}
 	data.CurrentPage = "install"
 	if data.Suite == "" {
@@ -112,11 +117,7 @@ func (l *Loader) RenderInstall(data *InstallPageData) (string, error) {
 // RenderGPGKey renders the GPG key page
 func (l *Loader) RenderGPGKey(data *GPGKeyPageData) (string, error) {
 	if data.NavItems == nil {
-		data.NavItems = map[string]string{
-			"index":   "/",
-			"install": "/install.html",
-			"gpg":     "/gpg-key.html",
-		}
+		data.NavItems = NavItems(data.BasePath)
 	}
 	data.CurrentPage = "gpg"
 
@@ -136,11 +137,7 @@ func (l *Loader) RenderGPGKey(data *GPGKeyPageData) (string, error) {
 // RenderCardIndex renders the card-based index page
 func (l *Loader) RenderCardIndex(data *CardIndexPageData) (string, error) {
 	if data.NavItems == nil {
-		data.NavItems = map[string]string{
-			"index":   "/",
-			"install": "/install.html",
-			"gpg":     "/gpg-key.html",
-		}
+		data.NavItems = NavItems(data.BasePath)
 	}
 	data.CurrentPage = "index"
 
@@ -160,11 +157,7 @@ func (l *Loader) RenderCardIndex(data *CardIndexPageData) (string, error) {
 // RenderPackageDetail renders a package detail page
 func (l *Loader) RenderPackageDetail(data *PackageDetailPageData) (string, error) {
 	if data.NavItems == nil {
-		data.NavItems = map[string]string{
-			"index":   "/",
-			"install": "/install.html",
-			"gpg":     "/gpg-key.html",
-		}
+		data.NavItems = NavItems(data.BasePath)
 	}
 	data.CurrentPage = "packages"
 
@@ -184,11 +177,7 @@ func (l *Loader) RenderPackageDetail(data *PackageDetailPageData) (string, error
 // RenderProfile renders the user profile page
 func (l *Loader) RenderProfile(data *UserProfilePageData) (string, error) {
 	if data.NavItems == nil {
-		data.NavItems = map[string]string{
-			"index":   "/",
-			"install": "/install.html",
-			"gpg":     "/gpg-key.html",
-		}
+		data.NavItems = NavItems(data.BasePath)
 	}
 	data.CurrentPage = "profile"
 	data.Title = "User Profile"

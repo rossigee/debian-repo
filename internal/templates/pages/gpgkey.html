@@ -33,15 +33,18 @@
 
 <h2>Import Key</h2>
 
+{{- if not .RepositoryHost}}
+<p>This server has no public host configured, so the repository address is not known here. Replace <code>REPOSITORY_URL</code> with the repository's public address in these commands.</p>
+{{- end}}
 <pre>
 # Download the key
-curl -O https://debs.myorgname.com/pubkey.gpg
+curl -O {{ .RepositoryURL }}/pubkey.gpg
 
 # Import into GPG
 gpg --import pubkey.gpg
 
 # Or use directly with apt
-curl https://debs.myorgname.com/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/myorgname.gpg
+curl {{ .RepositoryURL }}/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/repository.gpg
 </pre>
 
 </main>

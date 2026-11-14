@@ -6,11 +6,15 @@ import (
 
 // PageData is the base context for all page renders
 type PageData struct {
-	Title           string
-	CurrentPage     string
-	PageHeader      string
-	PageSubtitle    string
-	PageStyles      string
+	Title        string
+	CurrentPage  string
+	PageHeader   string
+	PageSubtitle string
+	PageStyles   string
+	// BasePath is the repository's path prefix ("" for a root repository).
+	// Repository-scoped links are built from it so they stay inside the
+	// repository's own pages.
+	BasePath        string
 	NavItems        map[string]string
 	VersionString   string
 	LastUpdated     time.Time
@@ -23,7 +27,10 @@ type PageData struct {
 // InstallPageData contains data for the installation instructions page
 type InstallPageData struct {
 	PageData
-	RepositoryURL  string
+	RepositoryURL string
+	// RepositoryHost is the host part of RepositoryURL. Empty when the
+	// repository has no public host, in which case the pages say so.
+	RepositoryHost string
 	KeyFingerprint string
 	KeyID          string
 	Suite          string
@@ -32,6 +39,8 @@ type InstallPageData struct {
 // GPGKeyPageData contains data for the GPG key page
 type GPGKeyPageData struct {
 	PageData
+	RepositoryURL  string
+	RepositoryHost string
 	KeyFingerprint string
 	KeyID          string
 	KeyUIDs        []string

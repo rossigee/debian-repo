@@ -1,7 +1,7 @@
 {{define "navbar"}}
 <nav class="navbar">
 <div class="nav-container">
-<a href="/" class="nav-brand">📦 Debian Repository</a>
+<a href="{{ .BasePath }}/" class="nav-brand">📦 Debian Repository</a>
 <div class="nav-links">
 {{- $current := .CurrentPage }}
 {{- range $page, $link := .NavItems }}
