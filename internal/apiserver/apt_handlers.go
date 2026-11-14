@@ -284,19 +284,15 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 
 	data := &templates.InstallPageData{
 		PageData:       s.basePageData(r),
-		RepositoryURL:  rp.RepoURL,
+		RepositoryURL:  displayRepositoryURL(rp.RepoURL),
+		RepositoryHost: repositoryHost(rp.RepoURL),
 		KeyID:          keyInfo.KeyID,
 		KeyFingerprint: keyInfo.Fingerprint,
 		Suite:          suite,
 	}
 	data.Title = "Installation Instructions"
 	data.CurrentPage = "install"
-	data.PageHeader = "Repository GPG Key"
-	data.NavItems = map[string]string{
-		"index":   "/",
-		"install": "/install.html",
-		"gpg":     "/gpg-key.html",
-	}
+	data.PageHeader = "Installation Instructions"
 
 	html, err := s.templateLoader.RenderInstall(data)
 	if err != nil {
@@ -322,6 +318,8 @@ func (s *Server) handleGPGKeyPage(w http.ResponseWriter, r *http.Request) {
 
 	data := &templates.GPGKeyPageData{
 		PageData:       s.basePageData(r),
+		RepositoryURL:  displayRepositoryURL(rp.RepoURL),
+		RepositoryHost: repositoryHost(rp.RepoURL),
 		KeyID:          keyInfo.KeyID,
 		KeyFingerprint: keyInfo.Fingerprint,
 		KeyUIDs:        keyInfo.UIDs,
@@ -330,11 +328,6 @@ func (s *Server) handleGPGKeyPage(w http.ResponseWriter, r *http.Request) {
 	data.Title = "GPG Key Information"
 	data.CurrentPage = "gpg"
 	data.PageHeader = "Repository GPG Key"
-	data.NavItems = map[string]string{
-		"index":   "/",
-		"install": "/install.html",
-		"gpg":     "/gpg-key.html",
-	}
 
 	html, err := s.templateLoader.RenderGPGKey(data)
 	if err != nil {
@@ -425,11 +418,6 @@ func (s *Server) handleIndexCards(w http.ResponseWriter, r *http.Request) {
 	data.CurrentPage = "index"
 	data.PageHeader = "📦 Debian Package Repository"
 	data.VersionString = version.String()
-	data.NavItems = map[string]string{
-		"index":   "/",
-		"install": "/install.html",
-		"gpg":     "/gpg-key.html",
-	}
 
 	// cardSource tracks one package across suites (a package may live in
 	// several suites; the card shows the union of that info).
@@ -582,11 +570,6 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	data.Title = "User Profile"
 	data.CurrentPage = "profile"
 	data.PageHeader = "👤 Profile"
-	data.NavItems = map[string]string{
-		"index":   "/",
-		"install": "/install.html",
-		"gpg":     "/gpg-key.html",
-	}
 
 	html, err := s.templateLoader.RenderProfile(data)
 	if err != nil {
@@ -760,11 +743,6 @@ func (s *Server) handlePackageDetail(w http.ResponseWriter, r *http.Request) {
 	data.CurrentPage = "index"
 	data.PageHeader = fmt.Sprintf("📦 %s", pkgName)
 	data.PageSubtitle = description
-	data.NavItems = map[string]string{
-		"index":   "/",
-		"install": "/install.html",
-		"gpg":     "/gpg-key.html",
-	}
 
 	html, err := s.templateLoader.RenderPackageDetail(data)
 	if err != nil {
