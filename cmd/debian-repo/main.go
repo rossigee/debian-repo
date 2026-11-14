@@ -105,7 +105,7 @@ func main() {
 	// Build per-repo objects
 	repos := make([]*repo.Repo, 0, len(resolvedRepos))
 	for _, rc := range resolvedRepos {
-		rp, err := repo.BuildRepo(rc, baseMinioClient, defaultSigner, "https", firstRepo.Endpoint)
+		rp, err := repo.BuildRepo(rc, baseMinioClient, defaultSigner, "https")
 		if err != nil {
 			slog.Error("failed to build repo", "repo_id", rc.ID, "error", err)
 			os.Exit(1)

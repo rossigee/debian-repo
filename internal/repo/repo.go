@@ -66,7 +66,7 @@ func (r *Repo) Hydrated() bool { return r.hydrated.Load() }
 // BuildRepo constructs a Repo from a resolved config, given base clients and a default signer.
 // If the resolved config uses the default signer, defaultSigner is used; otherwise a new
 // signer is constructed (and will fail fast if the key is invalid).
-func BuildRepo(rc config.ResolvedRepo, base *minio.Client, defaultSigner *gpgsign.Signer, publicScheme, defaultHost string) (*Repo, error) {
+func BuildRepo(rc config.ResolvedRepo, base *minio.Client, defaultSigner *gpgsign.Signer, publicScheme string) (*Repo, error) {
 	// Scope the MinIO client to this repo's bucket and prefix.
 	//
 	// The bucket is not checked here. Doing so made startup depend on MinIO:
@@ -88,7 +88,7 @@ func BuildRepo(rc config.ResolvedRepo, base *minio.Client, defaultSigner *gpgsig
 	}
 
 	// Build repo URL from vhost/path/scheme
-	repoURL := buildRepoURL(publicScheme, rc.VHost, rc.PathPrefix, defaultHost)
+	repoURL := buildRepoURL(publicScheme, rc.VHost, rc.PublicHost, rc.PathPrefix)
 
 	rp := &Repo{
 		ID:                  rc.ID,
@@ -114,18 +114,25 @@ func BuildRepo(rc config.ResolvedRepo, base *minio.Client, defaultSigner *gpgsig
 	return rp, nil
 }
 
-// buildRepoURL constructs the public base URL for a repo from vhost, path, and defaults.
-func buildRepoURL(scheme, vhost, pathPrefix, defaultHost string) string {
+// buildRepoURL constructs the public base URL for a repo. The host is the
+// repo's vhost, else its public host. Neither is the storage endpoint, which
+// is internal and must never be published. With no public host at all the
+// result is the path alone, e.g. "/testing": it names the repository without
+// asserting a host the server does not know.
+func buildRepoURL(scheme, vhost, publicHost, pathPrefix string) string {
 	if scheme == "" {
 		scheme = "https"
 	}
 
+	path := strings.TrimSuffix(pathPrefix, "/")
+
 	host := vhost
 	if host == "" {
-		host = defaultHost
+		host = publicHost
 	}
-
-	path := strings.TrimSuffix(pathPrefix, "/")
+	if host == "" {
+		return path
+	}
 
 	return scheme + "://" + host + path
 }

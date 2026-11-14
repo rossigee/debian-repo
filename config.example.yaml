@@ -1,6 +1,11 @@
 # Multi-repo configuration
 required_repo_id: "main"
 
+# Public host clients reach repositories under when a repo has no vhost.
+# This is the public name, never the storage endpoint. If neither this nor a
+# repo's public_host is set, repo URLs are the path alone (e.g. "/testing").
+public_host: "debs.example.com"
+
 repos:
   - id: "main"
     # vhost and path_prefix empty = serves at root (same as today)
