@@ -102,6 +102,14 @@ type Config struct {
 		Metrics string `yaml:"metrics"`
 	} `yaml:"listen"`
 
+	// Metrics controls how index-state metrics are reported.
+	Metrics struct {
+		// PerRepo reports distribution and package counts per repository, with
+		// a repo label. Off by default: totals are summed across repositories,
+		// which keeps the series count unchanged.
+		PerRepo bool `yaml:"per_repo"`
+	} `yaml:"metrics"`
+
 	Storage struct {
 		MinIO struct {
 			Endpoint  string `yaml:"endpoint"`
