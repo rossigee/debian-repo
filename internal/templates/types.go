@@ -1,7 +1,6 @@
 package templates
 
 import (
-	"html/template"
 	"time"
 )
 
@@ -10,7 +9,7 @@ type PageData struct {
 	Title           string
 	CurrentPage     string
 	PageHeader      string
-	PageSubtitle    template.HTML
+	PageSubtitle    string
 	PageStyles      string
 	NavItems        map[string]string
 	VersionString   string

@@ -30,12 +30,6 @@ type Loader struct {
 func NewLoader() *Loader {
 	return &Loader{
 		funcMap: template.FuncMap{
-			"safeHTML": func(s string) template.HTML {
-				return template.HTML(s)
-			},
-			"safeAttr": func(s string) template.HTMLAttr {
-				return template.HTMLAttr(s)
-			},
 			"formatBytes": func(size int64) string {
 				const unit = 1024
 				if size < unit {
