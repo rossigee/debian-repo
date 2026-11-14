@@ -130,18 +130,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize metrics with all repos' index managers
-	// (For now, use the first repo; TODO: aggregate metrics across all repos)
-	_ = metrics.Init(repos[0].IndexMgr)
-	if len(repos) > 0 && repos[0].IndexMgr.GetIndex() != nil {
-		_ = repos[0].IndexMgr.GetIndex().SnapshotGen
+	// Index-state metrics cover every repository: summed by default, or one
+	// series per repository when metrics.per_repo is set.
+	repoIndexes := make([]metrics.RepoIndex, 0, len(repos))
+	for _, rp := range repos {
+		repoIndexes = append(repoIndexes, metrics.RepoIndex{ID: rp.ID, Index: rp.IndexMgr})
 	}
+	_ = metrics.Init(repoIndexes, cfg.Metrics.PerRepo)
 
-	// Load apt users from MinIO (shared across all repos, scoped to first repo's bucket/prefix)
-	// The apt-user store lives in the first repository's bucket and prefix and
-	// is shared by all repositories. It must use that bucket-scoped client, not
-	// an unscoped base client, or every Get/Put fails with "Bucket name cannot be empty".
-	aptUserMinioStore := minio.NewAptUserStore(repos[0].MinioClient, cfg.Auth.AptUsers.StoreKey)
+	// Apt users live in the global storage bucket, configured under storage.minio.
+	// They are not tied to any one repository.
+	aptBase, _, err := basePool.Get(minio.BaseClientConfig{
+		Endpoint:   cfg.Storage.MinIO.Endpoint,
+		AccessKey:  cfg.Storage.MinIO.AccessKey,
+		SecretKey:  cfg.Storage.MinIO.SecretKey,
+		UseTLS:     cfg.Storage.MinIO.UseTLS,
+		CACertPath: cfg.Storage.MinIO.CACert,
+	})
+	if err != nil {
+		slog.Error("failed to create apt-user storage client", "error", err)
+		os.Exit(1)
+	}
+	aptUserMinioStore := minio.NewAptUserStore(aptBase.WithBucketAndPrefix(cfg.Storage.MinIO.Bucket, ""), cfg.Auth.AptUsers.StoreKey)
 	aptStore := aptauth.NewStore()
 	if err := aptStore.ReloadFrom(context.Background(), aptUserMinioStore); err != nil {
 		slog.Warn("failed to load apt users, starting with no apt users", "error", err)

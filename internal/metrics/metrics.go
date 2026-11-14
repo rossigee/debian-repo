@@ -40,9 +40,6 @@ type Metrics struct {
 	GPGSigningsTotal   prometheus.CounterVec
 	GPGSigningErrors   prometheus.CounterVec
 	GPGSigningDuration prometheus.HistogramVec
-
-	mu       sync.RWMutex
-	indexMgr IndexManager
 }
 
 // IndexManager is the interface for accessing index state
@@ -53,14 +50,20 @@ type IndexManager interface {
 	SnapshotGen() uint64
 }
 
+// RepoIndex pairs a repository ID with its index state.
+type RepoIndex struct {
+	ID    string
+	Index IndexManager
+}
+
 var instance *Metrics
 var once sync.Once
 
-// Init initializes the global metrics singleton with the given index manager
-func Init(indexMgr IndexManager) *Metrics {
+// Init initializes the global metrics singleton. Index-state gauges cover every
+// repository: summed by default, or labelled per repository when perRepo is set.
+func Init(repos []RepoIndex, perRepo bool) *Metrics {
 	once.Do(func() {
 		instance = &Metrics{
-			indexMgr: indexMgr,
 			HTTPRequestsTotal: *promauto.NewCounterVec(prometheus.CounterOpts{
 				Name: "debian_repo_http_requests_total",
 				Help: "Total HTTP requests by method and path",
@@ -127,36 +130,73 @@ func Init(indexMgr IndexManager) *Metrics {
 			}, []string{"key_id"}),
 		}
 
-		// Register gauge functions for dynamic index state
-		promauto.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "debian_repo_distributions_count",
-			Help: "Number of distributions in the index",
-		}, func() float64 {
-			instance.mu.RLock()
-			defer instance.mu.RUnlock()
-			if instance.indexMgr == nil {
-				return 0
-			}
-			return float64(len(instance.indexMgr.ListDistributions()))
-		})
-
-		promauto.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "debian_repo_packages_total",
-			Help: "Total number of packages across all distributions",
-		}, func() float64 {
-			instance.mu.RLock()
-			defer instance.mu.RUnlock()
-			if instance.indexMgr == nil {
-				return 0
-			}
-			total := 0
-			for _, suite := range instance.indexMgr.ListDistributions() {
-				total += instance.indexMgr.CountPackages(suite)
-			}
-			return float64(total)
-		})
+		// Index state is read at scrape time from every repository.
+		prometheus.MustRegister(newIndexCollector(repos, perRepo))
 	})
 	return instance
+}
+
+// indexCollector reports index state at scrape time. By default the totals are
+// summed across all repositories, so the series set is unchanged. With perRepo
+// each repository gets its own series, labelled repo. That multiplies the
+// series by the number of repositories, so it is opt-in.
+type indexCollector struct {
+	repos         []RepoIndex
+	perRepo       bool
+	distributions *prometheus.Desc
+	packages      *prometheus.Desc
+}
+
+func newIndexCollector(repos []RepoIndex, perRepo bool) *indexCollector {
+	var labels []string
+	if perRepo {
+		labels = []string{"repo"}
+	}
+	return &indexCollector{
+		repos:   repos,
+		perRepo: perRepo,
+		distributions: prometheus.NewDesc("debian_repo_distributions_count",
+			"Number of distributions in the index", labels, nil),
+		packages: prometheus.NewDesc("debian_repo_packages_total",
+			"Total number of packages across all distributions", labels, nil),
+	}
+}
+
+// Describe implements prometheus.Collector.
+func (c *indexCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.distributions
+	ch <- c.packages
+}
+
+// Collect implements prometheus.Collector.
+func (c *indexCollector) Collect(ch chan<- prometheus.Metric) {
+	if c.perRepo {
+		for _, r := range c.repos {
+			distributions, packages := indexTotals(r.Index)
+			ch <- prometheus.MustNewConstMetric(c.distributions, prometheus.GaugeValue, float64(distributions), r.ID)
+			ch <- prometheus.MustNewConstMetric(c.packages, prometheus.GaugeValue, float64(packages), r.ID)
+		}
+		return
+	}
+
+	var distributions, packages int
+	for _, r := range c.repos {
+		d, p := indexTotals(r.Index)
+		distributions += d
+		packages += p
+	}
+	ch <- prometheus.MustNewConstMetric(c.distributions, prometheus.GaugeValue, float64(distributions))
+	ch <- prometheus.MustNewConstMetric(c.packages, prometheus.GaugeValue, float64(packages))
+}
+
+// indexTotals returns the distribution count and the package count across all
+// distributions of one repository's index.
+func indexTotals(idx IndexManager) (distributions, packages int) {
+	suites := idx.ListDistributions()
+	for _, suite := range suites {
+		packages += idx.CountPackages(suite)
+	}
+	return len(suites), packages
 }
 
 // Get returns the global metrics singleton

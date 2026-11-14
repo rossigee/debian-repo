@@ -1,6 +1,12 @@
 # Multi-repo configuration
 required_repo_id: "main"
 
+# Index-state metrics. Off by default: distribution and package totals are
+# summed across repositories. Set per_repo to get one series per repository
+# (repo label), at the cost of more series to scrape.
+metrics:
+  per_repo: false
+
 # Public host clients reach repositories under when a repo has no vhost.
 # This is the public name, never the storage endpoint. If neither this nor a
 # repo's public_host is set, repo URLs are the path alone (e.g. "/testing").
