@@ -641,14 +641,13 @@ func (s *Server) handlePackageDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract package name from path /packages/{name}
-	path := strings.TrimPrefix(r.URL.Path, "/packages/")
-	if path == r.URL.Path || path == "" {
+	// Extract package name from the repo-relative path /packages/{name}
+	name, found := strings.CutPrefix(stripRepoPrefix(r.URL.Path, rp), "/packages/")
+	pkgName := strings.TrimSuffix(name, "/")
+	if !found || pkgName == "" {
 		http.NotFound(w, r)
 		return
 	}
-
-	pkgName := strings.TrimSuffix(path, "/")
 
 	// Get index and search for package
 	idx := rp.IndexMgr.GetIndex()
