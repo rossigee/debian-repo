@@ -29,6 +29,7 @@ type GrantConfig struct {
 type RepoConfig struct {
 	ID         string `yaml:"id"`          // required, unique
 	VHost      string `yaml:"vhost"`       // optional, e.g. "debs.example.com"
+	PublicHost string `yaml:"public_host"` // optional public name when there is no vhost; falls back to global public_host
 	PathPrefix string `yaml:"path_prefix"` // optional, e.g. "/myorg"
 
 	Storage struct {
@@ -65,6 +66,8 @@ type RepoConfig struct {
 // ResolvedRepo is a fully resolved RepoConfig with every field defaulted from the global Config.
 type ResolvedRepo struct {
 	ID, VHost, PathPrefix string
+	// PublicHost is the public host for URLs when VHost is empty. Never the storage endpoint.
+	PublicHost string
 
 	Endpoint, Bucket, AccessKey, SecretKey, CACert string
 	UseTLS                                         bool
@@ -89,6 +92,10 @@ type ResolvedRepo struct {
 type Config struct {
 	Repos          []RepoConfig `yaml:"repos"`            // optional; if empty, a default repo is synthesized
 	RequiredRepoID string       `yaml:"required_repo_id"` // optional; if set, must exist in Repos when explicit repos are configured
+	// PublicHost is the public name clients reach repositories under when a
+	// repository has no vhost and no public_host of its own. It is never the
+	// storage endpoint.
+	PublicHost string `yaml:"public_host"`
 
 	Listen struct {
 		HTTP    string `yaml:"http"`
@@ -366,6 +373,7 @@ func synthesizeDefaultRepo(cfg *Config) ResolvedRepo {
 	return ResolvedRepo{
 		ID:                  "default",
 		VHost:               "",
+		PublicHost:          cfg.PublicHost,
 		PathPrefix:          "",
 		Endpoint:            cfg.Storage.MinIO.Endpoint,
 		Bucket:              cfg.Storage.MinIO.Bucket,
@@ -392,9 +400,15 @@ func synthesizeDefaultRepo(cfg *Config) ResolvedRepo {
 }
 
 func resolveRepoConfig(cfg *Config, rc RepoConfig) ResolvedRepo {
+	publicHost := rc.PublicHost
+	if publicHost == "" {
+		publicHost = cfg.PublicHost
+	}
+
 	rr := ResolvedRepo{
 		ID:                rc.ID,
 		VHost:             rc.VHost,
+		PublicHost:        publicHost,
 		PathPrefix:        rc.PathPrefix,
 		DefaultSuite:      rc.DefaultSuite,
 		DefaultComponent:  rc.DefaultComponent,
