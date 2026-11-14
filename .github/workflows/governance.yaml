@@ -67,7 +67,7 @@ jobs:
           applied=""
           apply() {
             if grep -qE "$1" <<<"$files"; then
-              gh pr edit "$PR" --add-label "$2"
+              gh pr edit "$PR" --repo "$REPO" --add-label "$2"
               applied="$applied $2"
             fi
           }
