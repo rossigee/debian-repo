@@ -149,9 +149,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Object key for final pool location
 	objectKey := fmt.Sprintf("pool/%s/%s_%s_%s.deb", component, debInfo.Package, debInfo.Version, debInfo.Architecture)
 
+	// Hold the pool lock from writing the object until it is registered, so a
+	// concurrent removal cannot delete it in between.
+	rp.PoolMu.Lock()
+
 	// Upload to MinIO pool (no staging)
 	if rp.MinioClient != nil {
 		if err := rp.MinioClient.PutObject(r.Context(), objectKey, bytes.NewReader(data), size); err != nil {
+			rp.PoolMu.Unlock()
 			http.Error(w, "Failed to store package", http.StatusInternalServerError)
 			return
 		}
@@ -174,7 +179,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add to index
-	if err := rp.IndexMgr.AddPackageVersion(suite, component, debInfo.Package, ver); err != nil {
+	err = rp.IndexMgr.AddPackageVersion(suite, component, debInfo.Package, ver)
+	rp.PoolMu.Unlock()
+	if err != nil {
 		http.Error(w, "Failed to register package", http.StatusInternalServerError)
 		return
 	}
@@ -412,9 +419,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// Object key for final pool location
 	objectKey := fmt.Sprintf("pool/%s/%s_%s_%s.deb", req.Component, debInfo.Package, debInfo.Version, debInfo.Architecture)
 
-	// Move from staging to pool (atomic from client perspective)
+	// Move from staging to pool (atomic from client perspective). Held under
+	// the pool lock until registered, as in the direct upload path.
+	rp.PoolMu.Lock()
 	err = rp.MinioClient.MoveObject(r.Context(), req.StagingKey, objectKey)
 	if err != nil {
+		rp.PoolMu.Unlock()
 		http.Error(w, "Failed to register package", http.StatusInternalServerError)
 		return
 	}
@@ -436,7 +446,9 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add to index
-	if err := rp.IndexMgr.AddPackageVersion(req.Suite, req.Component, debInfo.Package, ver); err != nil {
+	err = rp.IndexMgr.AddPackageVersion(req.Suite, req.Component, debInfo.Package, ver)
+	rp.PoolMu.Unlock()
+	if err != nil {
 		http.Error(w, "Failed to register package", http.StatusInternalServerError)
 		return
 	}
@@ -530,6 +542,23 @@ func (s *Server) handleListDists(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+// reapPoolObjects deletes the candidate pool objects that no suite still
+// references. A pool object is shared by every suite holding the same
+// (component, package, version, arch), so the references are re-checked under
+// the pool lock, and the deletes run under it too. That way an upload
+// registering the same object in the meantime is never deleted out from under
+// it. A failed delete is logged and does not stop the others.
+func reapPoolObjects(ctx context.Context, rp *repo.Repo, candidates []string, remove func(context.Context, string) error) {
+	rp.PoolMu.Lock()
+	defer rp.PoolMu.Unlock()
+
+	for _, objKey := range rp.IndexMgr.UnreferencedPoolKeys(candidates) {
+		if err := remove(ctx, objKey); err != nil {
+			slog.Warn("failed to delete pool file after remove", "object", objKey, "error", err)
+		}
+	}
 }
 
 // handleRemovePackage removes a package version from a distribution
@@ -643,23 +672,12 @@ func (s *Server) handleRemovePackage(w http.ResponseWriter, r *http.Request) {
 		s.renderAndStoreDistribution(suite, dist, rp)
 	}
 
-	// A pool object is shared by every suite holding the same
-	// (component, package, version, arch). Only delete objects that no suite
-	// still references, or removing from one suite breaks another's Packages.
-	orphanedPoolPaths := rp.IndexMgr.UnreferencedPoolKeys(poolPathsToDelete)
-
 	// Delete pool files and persist updated snapshot (async by default)
 	if rp.MinioClient != nil {
 		go func() {
 			ctx := context.Background()
 
-			// Delete pool files
-			for _, objKey := range orphanedPoolPaths {
-				if err := rp.MinioClient.RemoveObject(ctx, objKey); err != nil {
-					slog.Warn("failed to delete pool file after remove", "object", objKey, "error", err)
-					// Don't fail the entire operation if one file deletion fails
-				}
-			}
+			reapPoolObjects(ctx, rp, poolPathsToDelete, rp.MinioClient.RemoveObject)
 
 			// Persist updated snapshot
 			store := rp.SnapshotStore

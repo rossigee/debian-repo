@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"git.golder.lan/rossgolderltd/debian-repo/internal/config"
@@ -41,6 +42,13 @@ type Repo struct {
 	FeedMaxItems int
 
 	RepoURL string
+
+	// PoolMu serialises writes and deletes of pool objects. Upload and
+	// register hold it from storing the object until it is registered in the
+	// index; removal holds it while re-checking references before deleting.
+	// Without it, a removal can delete an object an upload has just written
+	// but not yet registered.
+	PoolMu sync.Mutex
 
 	// hydrated reports whether the snapshot has been loaded and the metadata
 	// rendered. It is false from process start until hydration completes, so
