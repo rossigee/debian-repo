@@ -88,6 +88,10 @@ type ResolvedRepo struct {
 	StagingPrefix       string
 }
 
+// DefaultMaxDebSizeBytes is the largest package accepted when
+// validation.max_deb_size_bytes is not set.
+const DefaultMaxDebSizeBytes int64 = 512 * 1024 * 1024
+
 // Config is the root configuration structure
 type Config struct {
 	Repos          []RepoConfig `yaml:"repos"`            // optional; if empty, a default repo is synthesized
@@ -238,7 +242,7 @@ func Load(path string) (*Config, error) {
 		cfg.Signing.KeepDecrypted = true
 	}
 	if cfg.Validation.MaxDebSizeBytes == 0 {
-		cfg.Validation.MaxDebSizeBytes = 536870912 // 512MB
+		cfg.Validation.MaxDebSizeBytes = DefaultMaxDebSizeBytes
 	}
 	if cfg.RepoMetadata.Origin == "" {
 		cfg.RepoMetadata.Origin = "myorgname.com"
