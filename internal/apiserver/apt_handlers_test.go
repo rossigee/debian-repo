@@ -158,7 +158,7 @@ func TestPackagesPathParsing(t *testing.T) {
 			req := httptest.NewRequest("GET", tt.path, nil)
 			w := httptest.NewRecorder()
 
-			server.handleDists(w, req)
+			server.handleDists(w, withTestRepo(req, server.registry.All()[0]))
 
 			if w.Code != tt.expectedStatus {
 				t.Errorf("expected status %d, got %d", tt.expectedStatus, w.Code)
@@ -247,7 +247,7 @@ func TestPackagesPathEdgeCases(t *testing.T) {
 			req := httptest.NewRequest("GET", tt.path, nil)
 			w := httptest.NewRecorder()
 
-			server.handleDists(w, req)
+			server.handleDists(w, withTestRepo(req, server.registry.All()[0]))
 
 			if w.Code != tt.expectedStatus {
 				t.Errorf("%s: expected status %d, got %d", tt.description, tt.expectedStatus, w.Code)

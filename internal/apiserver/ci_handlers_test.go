@@ -125,7 +125,7 @@ func TestHandleRemovePackageNotFound(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("Expected 500, got %d", rec.Code)
@@ -143,7 +143,7 @@ func TestHandleRemovePackageInvalidPath(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("Expected 400, got %d", rec.Code)
@@ -163,7 +163,7 @@ func TestHandleRemovePackageMissingVersion(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	// Should return error because empty version/arch doesn't match stored key
 	if rec.Code != http.StatusInternalServerError {
@@ -183,7 +183,7 @@ func TestHandleRemovePackageWithVersionOnly(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	// Should return error because arch is empty
 	if rec.Code != http.StatusInternalServerError {
@@ -203,7 +203,7 @@ func TestHandleRemovePackageCascade(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200 for first removal, got %d", rec.Code)
@@ -215,7 +215,7 @@ func TestHandleRemovePackageCascade(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec = httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200 for second removal, got %d", rec.Code)
@@ -241,7 +241,7 @@ func TestHandleRemovePackageNoMinIO(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200, got %d", rec.Code)
@@ -259,7 +259,7 @@ func TestHandleRemovePackageWithMinIO(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200, got %d", rec.Code)
@@ -303,7 +303,7 @@ func TestHandleRemovePackageProtectedSuite(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200 for first removal, got %d", rec.Code)
@@ -315,7 +315,7 @@ func TestHandleRemovePackageProtectedSuite(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec = httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("Expected 409 for protected suite drain, got %d: %s", rec.Code, rec.Body.String())
@@ -330,7 +330,7 @@ func TestHandleRemovePackageProtectedSuite(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec = httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200 with force=true, got %d: %s", rec.Code, rec.Body.String())
@@ -376,7 +376,7 @@ func TestHandleRemovePackagePoolFileDeletion(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200 for removal, got %d: %s", rec.Code, rec.Body.String())
@@ -434,7 +434,7 @@ func TestHandleRemovePackagePoolFileMultipleVersions(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200, got %d", rec.Code)
@@ -446,7 +446,7 @@ func TestHandleRemovePackagePoolFileMultipleVersions(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec = httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -476,7 +476,7 @@ func TestHandleRemovePackagePoolFileMultipleVersions(t *testing.T) {
 	req.Header.Set("X-CI-Identity", "test")
 	rec = httptest.NewRecorder()
 
-	s.handleRemovePackage(rec, req)
+	s.handleRemovePackage(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected 200, got %d: %s", rec.Code, rec.Body.String())

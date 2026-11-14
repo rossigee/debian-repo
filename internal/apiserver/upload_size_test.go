@@ -93,7 +93,7 @@ func TestHandleUploadRecordsRealSize(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/v1/upload?suite=stable&component=main", bytes.NewReader(deb))
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
-	s.handleUpload(rec, req)
+	s.handleUpload(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -139,7 +139,7 @@ func TestHandleUploadRejectsGarbage(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/v1/upload?suite=stable&component=main", bytes.NewReader([]byte("not a deb")))
 	req.Header.Set("X-CI-Identity", "test")
 	rec := httptest.NewRecorder()
-	s.handleUpload(rec, req)
+	s.handleUpload(rec, withTestRepo(req, s.registry.All()[0]))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)

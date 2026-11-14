@@ -46,7 +46,7 @@ func getCards(t *testing.T, s *Server, target string) (int, string) {
 	t.Helper()
 	req := httptest.NewRequest("GET", target, nil)
 	rec := httptest.NewRecorder()
-	s.handleIndexCards(rec, req)
+	s.handleIndexCards(rec, withTestRepo(req, s.registry.All()[0]))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET %s: expected 200, got %d", target, rec.Code)
 	}
@@ -113,7 +113,7 @@ func TestIndexCardsBadSuite(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/?suite=../x", nil)
 	rec := httptest.NewRecorder()
-	s.handleIndexCards(rec, req)
+	s.handleIndexCards(rec, withTestRepo(req, s.registry.All()[0]))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}

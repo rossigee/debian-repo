@@ -88,7 +88,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Get the repo from request context
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -260,7 +260,7 @@ func (s *Server) handlePresign(w http.ResponseWriter, r *http.Request) {
 	// Get the repo from request context
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -336,7 +336,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// Get the repo from request context
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -522,7 +522,7 @@ func (s *Server) handleListDists(w http.ResponseWriter, r *http.Request) {
 	// Get the repo from request context
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -566,7 +566,7 @@ func (s *Server) handleRemovePackage(w http.ResponseWriter, r *http.Request) {
 	// Get the repo from request context
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -776,7 +776,7 @@ func (s *Server) handleMovePackages(w http.ResponseWriter, r *http.Request) {
 	// Get the repo from request context
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -946,7 +946,7 @@ func (s *Server) handleReconcile(w http.ResponseWriter, r *http.Request) {
 	// Get the repo from request context
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
@@ -1036,7 +1036,7 @@ func (s *Server) handleReconcileStatus(w http.ResponseWriter, r *http.Request) {
 	// Get the repo from request context
 	rp := s.currentRepo(r)
 	if rp == nil {
-		http.Error(w, "Repository not found", http.StatusInternalServerError)
+		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
