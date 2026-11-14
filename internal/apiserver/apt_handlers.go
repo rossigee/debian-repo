@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -758,7 +757,7 @@ func (s *Server) handlePackageDetail(w http.ResponseWriter, r *http.Request) {
 	data.Title = fmt.Sprintf("%s - Package Details", pkgName)
 	data.CurrentPage = "index"
 	data.PageHeader = fmt.Sprintf("📦 %s", pkgName)
-	data.PageSubtitle = template.HTML(description)
+	data.PageSubtitle = description
 	data.NavItems = map[string]string{
 		"index":   "/",
 		"install": "/install.html",
