@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -108,8 +109,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		identity = "unknown"
 	}
 
-	// Limit request body size (512MB max)
-	r.Body = http.MaxBytesReader(w, r.Body, 512*1024*1024)
+	// Limit request body size to the configured maximum package size
+	maxSize := s.maxDebSize()
+	r.Body = http.MaxBytesReader(w, r.Body, maxSize)
 
 	// Validate suite/component before proceeding
 	if !isValidPathComponent(suite) || !isValidPathComponent(component) {
@@ -122,11 +124,20 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.rejectNotAllowedSuiteComponent(w, suite, component) {
+		return
+	}
+
 	// Buffer the body once: validate.Deb drains its reader, so the bytes
 	// must be re-readable for the MinIO put below.
 	data, err := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, fmt.Sprintf("package exceeds the maximum size of %d bytes", maxSize), http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "Invalid package format", http.StatusBadRequest)
 		return
 	}
@@ -143,6 +154,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Validate extracted package metadata before using in path
 	if !isValidPathComponent(debInfo.Package) || !isValidPathComponent(debInfo.Version) || !isValidPathComponent(debInfo.Architecture) {
 		http.Error(w, "Invalid package format", http.StatusBadRequest)
+		return
+	}
+
+	// Upload registers the package, so the architecture allowlist applies
+	if _, _, architectures := s.validationAllowlists(); rejectNotAllowed(w, "architecture", debInfo.Architecture, architectures) {
 		return
 	}
 
@@ -303,6 +319,10 @@ func (s *Server) handlePresign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.rejectNotAllowedSuiteComponent(w, req.Suite, req.Component) {
+		return
+	}
+
 	// Generate staging key under the configured staging prefix
 	stagingPrefix := s.config.Storage.StagingPrefix
 	if stagingPrefix == "" {
@@ -380,6 +400,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.rejectNotAllowedSuiteComponent(w, req.Suite, req.Component) {
+		return
+	}
+
 	// Fetch staged object from MinIO
 	if rp.MinioClient == nil {
 		http.Error(w, "Storage not configured", http.StatusInternalServerError)
@@ -389,6 +413,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	stagedStat, err := rp.MinioClient.StatObject(r.Context(), req.StagingKey)
 	if err != nil {
 		http.Error(w, "Staged file not found", http.StatusNotFound)
+		return
+	}
+
+	// The staged object's size is authoritative: it is what gets registered.
+	if maxSize := s.maxDebSize(); stagedStat.Size > maxSize {
+		http.Error(w, fmt.Sprintf("package exceeds the maximum size of %d bytes", maxSize), http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -413,6 +443,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// Validate extracted metadata
 	if !isValidPathComponent(debInfo.Package) || !isValidPathComponent(debInfo.Version) || !isValidPathComponent(debInfo.Architecture) {
 		http.Error(w, "Invalid package format", http.StatusBadRequest)
+		return
+	}
+
+	// Register enforces the architecture allowlist
+	if _, _, architectures := s.validationAllowlists(); rejectNotAllowed(w, "architecture", debInfo.Architecture, architectures) {
 		return
 	}
 
@@ -609,6 +644,10 @@ func (s *Server) handleRemovePackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.rejectNotAllowedSuiteComponent(w, suite, component) {
+		return
+	}
+
 	// Optional: specify version and architecture
 	ver := ""
 	arch := ""
@@ -800,6 +839,17 @@ func (s *Server) handleMovePackages(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Component != "" && !isValidPathComponent(req.Component) {
 		http.Error(w, "Invalid component name", http.StatusBadRequest)
+		return
+	}
+
+	// Both the source and destination suites are subject to the distribution
+	// allowlist; the component filter, when given, to the component allowlist.
+	allowedDists, allowedComps, _ := s.validationAllowlists()
+	if rejectNotAllowed(w, "distribution", req.FromSuite, allowedDists) ||
+		rejectNotAllowed(w, "distribution", req.ToSuite, allowedDists) {
+		return
+	}
+	if req.Component != "" && rejectNotAllowed(w, "component", req.Component, allowedComps) {
 		return
 	}
 
